@@ -29,7 +29,6 @@
             position: relative;
             cursor: pointer;
             user-select: none;
-            transition: background-color 0.15s ease;
         }
         .light-square { background-color: #ebecd0; color: #779556; }
         .dark-square { background-color: #779556; color: #ebecd0; }
@@ -41,6 +40,7 @@
             background-color: rgba(0, 0, 0, 0.15);
             border-radius: 50%;
             position: absolute;
+            z-index: 5;
         }
         .square.highlighted.has-piece::after {
             width: 90%;
@@ -48,17 +48,16 @@
             background-color: transparent;
             border: 4px solid rgba(0, 0, 0, 0.15);
             border-radius: 50%;
+            z-index: 5;
         }
         .piece {
-            width: 90%;
-            height: 90%;
+            width: 95%;
+            height: 95%;
             background-size: contain;
             background-repeat: no-repeat;
             background-position: center;
             z-index: 10;
-            transition: transform 0.1s ease;
         }
-        .piece:active { transform: scale(1.1); }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #262522; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #45433f; border-radius: 3px; }
@@ -135,11 +134,6 @@
                 <div class="w-5 bg-[#21201d] rounded overflow-hidden flex flex-col border border-[#312e2b] relative">
                     <div id="evalBlack" class="bg-[#111] w-full transition-all duration-300" style="height: 50%;"></div>
                     <div id="evalWhite" class="bg-[#fff] w-full flex-1 transition-all duration-300"></div>
-                    <div class="absolute inset-0 flex flex-col justify-between items-center text-[10px] font-bold mix-blend-difference text-white py-1 pointer-events-none">
-                        <span>+M</span>
-                        <span>0.0</span>
-                        <span>-M</span>
-                    </div>
                 </div>
                 
                 <div id="board" class="chessboard flex-1"></div>
@@ -148,7 +142,7 @@
             <div class="w-full flex justify-between items-center px-1 text-sm font-medium text-[#bababa]">
                 <div class="flex items-center space-x-2">
                     <div class="w-3 h-3 bg-[#779556] rounded-sm"></div>
-                    <span>You (White)</span>
+                    <span>You (White - Bottom Side)</span>
                 </div>
             </div>
         </section>
@@ -176,7 +170,7 @@
                 </div>
 
                 <div id="coachSpeechLog" class="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1 text-sm leading-relaxed mb-4 text-[#dedede]">
-                    <p class="text-[#bababa] italic">Welcome! I have brought Stockfish directly onto the board. Make a move, and watch me formulate legitimate strategic configurations.</p>
+                    <p class="text-[#bababa] italic">Welcome back! The configuration alignment issues are resolved. White is fixed at the bottom. Make your move to trigger Stockfish calculations.</p>
                 </div>
 
                 <div class="mt-auto pt-2 border-t border-[#312e2b] flex space-x-2">
@@ -187,16 +181,15 @@
                 </div>
             </div>
 
-            <div class="bg-[#262522] rounded-lg border border-[#312e2b] p-4 h-[150px] flex flex-col">
+            <div class="bg-[#262522] rounded-lg border border-[#312e2b] p-4 h-[130px] flex flex-col">
                 <h3 class="text-xs font-bold uppercase tracking-wider text-[#bababa] mb-2">Move Log</h3>
                 <div id="moveLog" class="flex-1 overflow-y-auto custom-scrollbar text-xs font-mono grid grid-cols-2 gap-y-1 gap-x-4 pr-1 text-[#bababa]">
-                    </div>
+                </div>
             </div>
         </section>
     </main>
 
     <script>
-        // Module Theoretical Schema Datasets
         const OPENING_BOOK = {
             ruy_lopez: {
                 name: "Ruy Lopez",
@@ -241,7 +234,6 @@
             }
         ];
 
-        // System Configuration Globals
         let game = new Chess();
         let selectedSquare = null;
         let activeModule = 'freeplay';
@@ -253,7 +245,6 @@
         let stockfishWorker = null;
         let engineSkillLevel = 5;
 
-        // Audio Synthesis Driver Setup
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playTone(freq, type, duration, vol) {
             try {
@@ -272,18 +263,15 @@
         function soundMove() { playTone(350, 'sine', 0.1, 0.15); }
         function soundCapture() { playTone(180, 'triangle', 0.15, 0.25); }
 
-        // Initialize Stockfish Web Worker
         function initStockfish() {
             try {
                 stockfishWorker = new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
                 
                 stockfishWorker.onmessage = function(event) {
                     const line = event.data;
-                    
                     if (line.startsWith('info depth')) {
                         parseEvaluation(line);
                     }
-                    
                     if (line.startsWith('bestmove')) {
                         document.getElementById('engineStatus').innerText = "Ready";
                         const moveParts = line.split(' ');
@@ -310,7 +298,7 @@
                 stockfishWorker.postMessage(`setoption name Skill Level value ${engineSkillLevel}`);
                 stockfishWorker.postMessage('isready');
             } catch (err) {
-                console.error("Stockfish compilation setup failed:", err);
+                console.error("Stockfish setup failed:", err);
                 document.getElementById('engineStatus').innerText = "Engine Error";
             }
         }
@@ -328,7 +316,6 @@
 
             let percentage = 50 + (score * 5);
             percentage = Math.max(5, Math.min(95, percentage));
-            
             document.getElementById('evalWhite').style.height = `${percentage}%`;
             document.getElementById('evalBlack').style.height = `${100 - percentage}%`;
         }
@@ -337,10 +324,9 @@
             if (!stockfishWorker || game.isGameOver() || game.turn() !== 'b') return;
             document.getElementById('engineStatus').innerText = "Stockfish thinking...";
             stockfishWorker.postMessage(`position fen ${game.fen()}`);
-            stockfishWorker.postMessage('go movetime 800');
+            stockfishWorker.postMessage('go movetime 1000');
         }
 
-        // Core App Initialization & Persistence Loader
         window.addEventListener('DOMContentLoaded', () => {
             loadSavedState();
             initDOM();
@@ -349,7 +335,6 @@
             updateUI();
         });
 
-        // Save State directly to Browser LocalStorage
         function saveCurrentState() {
             const state = {
                 fen: game.fen(),
@@ -365,7 +350,6 @@
             localStorage.setItem('gm_sophia_state', JSON.stringify(state));
         }
 
-        // Load State directly from Browser LocalStorage
         function loadSavedState() {
             const raw = localStorage.getItem('gm_sophia_state');
             if (!raw) return;
@@ -426,12 +410,6 @@
                 saveCurrentState();
             });
 
-            document.querySelectorAll('#moduleTabs button').forEach(btn => {
-                if (btn.getAttribute('data-module') === activeModule) {
-                    btn.click();
-                }
-            });
-
             document.getElementById('sendQueryBtn').addEventListener('click', handleUserQuery);
             document.getElementById('coachQueryInput').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleUserQuery(); });
             document.getElementById('toggleVoiceBtn').addEventListener('click', () => {
@@ -442,36 +420,27 @@
             document.getElementById('apiKey').addEventListener('input', saveCurrentState);
             
             document.getElementById('resetAppBtn').addEventListener('click', () => {
-                if (confirm("Are you sure you want to completely reset the application? This will clear your saved games.")) {
-                    localStorage.removeItem('gm_sophia_state');
-                    game.reset();
-                    activeModule = 'freeplay';
-                    currentOpeningStep = 0;
-                    currentPuzzleIdx = 0;
-                    currentPuzzleStep = 0;
-                    window.location.reload();
-                }
+                localStorage.removeItem('gm_sophia_state');
+                window.location.reload();
             });
         }
 
-        // FIXED VISUAL BOARD ORIENTATION: Row 0 is Rank 8 (Black side), Row 7 is Rank 1 (White side)
+        // FIXED CHESSBOARD ROW ARRAY MAPPING: Visual Row 0 is Rank 8 (Black), Visual Row 7 is Rank 1 (White)
         function renderBoard() {
             const boardDiv = document.getElementById('board');
             boardDiv.innerHTML = '';
             const boardState = game.board();
 
-            for (let r = 0; r < 8; r++) { // Row 0 is the top visual row (Rank 8)
-                for (let c = 0; c < 8; c++) {
-                    const row = 7 - r; // Correct indices to map chess.js logic arrays
-                    const col = c;
-                    const squareObj = boardState[row][col];
+            for (let visualRow = 0; visualRow < 8; visualRow++) { 
+                for (let col = 0; col < 8; col++) {
+                    const logicalRow = 7 - visualRow; 
+                    const squareObj = boardState[logicalRow][col];
                     const file = String.fromCharCode(97 + col);
-                    const rank = row + 1;
+                    const rank = logicalRow + 1;
                     const squareName = file + rank;
 
                     const sq = document.createElement('div');
-                    // Alternate colors natively across columns and rows
-                    sq.className = `square ${(r + c) % 2 === 0 ? 'light-square' : 'dark-square'}`;
+                    sq.className = `square ${(visualRow + col) % 2 === 0 ? 'light-square' : 'dark-square'}`;
                     sq.dataset.square = squareName;
 
                     if (selectedSquare === squareName) sq.classList.add('selected');
@@ -487,9 +456,7 @@
                     if (squareObj) {
                         const piece = document.createElement('div');
                         piece.className = 'piece';
-                        const colorCode = squareObj.color;
-                        const typeCode = squareObj.type.toUpperCase();
-                        piece.style.backgroundImage = `url('https://upload.wikimedia.org/wikipedia/commons/${getPieceImgPath(colorCode, typeCode)}')`;
+                        piece.style.backgroundImage = `url('https://upload.wikimedia.org/wikipedia/commons/${getPieceImgPath(squareObj.color, squareObj.type.toUpperCase())}')`;
                         sq.appendChild(piece);
                     }
 
@@ -539,6 +506,7 @@
 
             saveCurrentState();
             updateUI();
+            renderBoard();
 
             if (activeModule === 'openings') {
                 verifyOpeningSequence(parsedMove);
@@ -563,7 +531,6 @@
                 stockfishWorker.postMessage(`position fen ${game.fen()}`);
                 stockfishWorker.postMessage('go depth 10');
             }
-
             renderContextPanel();
         }
 
@@ -574,9 +541,9 @@
             if (activeModule === 'freeplay') {
                 panel.innerHTML = `
                     <h3 class="text-sm font-bold text-white mb-2">Engine Mode Active</h3>
-                    <p class="text-xs text-[#bababa] mb-4">Play white against Stockfish. Sophia will act as an advisor, analyzing every calculation layer dynamically.</p>
+                    <p class="text-xs text-[#bababa] mb-4">Play white against Stockfish. White sits cleanly at the bottom. Pieces are fully locked to coordinates.</p>
                     <button id="clearBoardBtn" class="w-full bg-[#312e2b] hover:bg-[#3d3a35] text-xs font-semibold py-2 rounded text-rose-400 border border-[#45433f] transition">
-                        <i class="fa-solid fa-trash-can mr-1"></i> Clear Board Progress
+                        <i class="fa-solid fa-trash-can mr-1"></i> Reset Board State
                     </button>
                 `;
                 document.getElementById('clearBoardBtn').addEventListener('click', () => {
@@ -594,14 +561,12 @@
 
                 panel.innerHTML = `
                     <h3 class="text-sm font-bold text-white mb-1">Opening Masterclass</h3>
-                    <p class="text-xs text-[#bababa] mb-3">Learn theoretical schema steps lines precisely.</p>
                     <select id="openingSelect" class="w-full bg-[#161512] border border-[#312e2b] text-xs p-2 rounded text-white focus:outline-none mb-3">${options}</select>
                     <div class="bg-[#161512] p-2 rounded border border-[#312e2b] flex-1 overflow-y-auto text-xs space-y-1.5 custom-scrollbar">
                         <p class="font-semibold text-[#81b64c]">${OPENING_BOOK[currentOpeningKey].name}</p>
                         <p class="text-[#bababa] text-[11px] leading-relaxed">${OPENING_BOOK[currentOpeningKey].description}</p>
                         <div class="pt-2 border-t border-[#312e2b]">
-                            <span class="font-bold">Target Moves:</span> 
-                            <span class="font-mono text-amber-400">${OPENING_BOOK[currentOpeningKey].moves.join(' → ')}</span>
+                            <span class="font-bold">Line:</span> <span class="font-mono text-amber-400">${OPENING_BOOK[currentOpeningKey].moves.join(' ')}</span>
                         </div>
                     </div>
                 `;
@@ -619,7 +584,6 @@
             else if (activeModule === 'midgame') {
                 panel.innerHTML = `
                     <h3 class="text-sm font-bold text-white mb-2">Midgame Strategy Planner</h3>
-                    <p class="text-xs text-[#bababa] mb-3">Analyze your current structure to formulate structural multi-layered plans.</p>
                     <button id="generatePlanBtn" class="w-full bg-[#81b64c] hover:bg-[#95cd5b] text-[#161512] text-xs font-bold py-2.5 rounded shadow transition">
                         <i class="fa-solid fa-brain mr-1"></i> Draft 3-Step Strategy Plan
                     </button>
@@ -630,12 +594,10 @@
                 const p = PUZZLE_BANK[currentPuzzleIdx];
                 panel.innerHTML = `
                     <h3 class="text-sm font-bold text-white mb-1">Tactics Lab</h3>
-                    <p class="text-xs text-[#bababa] mb-3">Solve tactical structures built manually.</p>
                     <div class="bg-[#161512] p-2 rounded border border-[#312e2b] space-y-2 text-xs flex-1">
-                        <p class="font-semibold text-amber-400"><i class="fa-solid fa-crosshairs mr-1"></i> ${p.name}</p>
-                        <p class="text-[11px] text-[#bababa]">Find the correct sequence to win tactical advantages.</p>
+                        <p class="font-semibold text-amber-400">${p.name}</p>
                         <button id="puzzleHintBtn" class="w-full bg-[#312e2b] hover:bg-[#3d3a35] text-[11px] py-1.5 rounded transition border border-[#45433f]">
-                            <i class="fa-solid fa-lightbulb text-yellow-400 mr-1"></i> Request Next Clue/Hint
+                            <i class="fa-solid fa-lightbulb text-yellow-400 mr-1"></i> Request Clue
                         </button>
                     </div>
                 `;
@@ -648,17 +610,15 @@
             if (move.san === targetLine[currentOpeningStep]) {
                 currentOpeningStep++;
                 if (currentOpeningStep >= targetLine.length) {
-                    speakAndLogCoachText(`Splendid! You have successfully completed the main line execution path for the ${OPENING_BOOK[currentOpeningKey].name}. You have a fantastic positional setup.`);
+                    speakAndLogCoachText(`Splendid! You completed the main line path for the ${OPENING_BOOK[currentOpeningKey].name}. You have an excellent positional setup.`);
                     currentOpeningStep = 0;
                 } else {
                     const notes = OPENING_BOOK[currentOpeningKey].coachNotes;
-                    const msg = notes[currentOpeningStep] || "That's exactly the theoretical line. Keep developing your coordinate structure.";
-                    speakAndLogCoachText(msg);
+                    speakAndLogCoachText(notes[currentOpeningStep] || "Excellent. Continue developing your structures.");
                     
                     setTimeout(() => {
                         if (currentOpeningStep < targetLine.length) {
-                            const bMove = targetLine[currentOpeningStep];
-                            game.move(bMove);
+                            game.move(targetLine[currentOpeningStep]);
                             soundMove();
                             currentOpeningStep++;
                             saveCurrentState();
@@ -668,7 +628,7 @@
                     }, 900);
                 }
             } else {
-                speakAndLogCoachText(`Ah, ${move.san} deviates from the main theoretical line of the ${OPENING_BOOK[currentOpeningKey].name}. Let's undo that so you can see why the alternative is preferred.`);
+                speakAndLogCoachText(`Ah, ${move.san} deviates from theory. Let's step back so we can keep studying the primary variations.`);
                 setTimeout(() => {
                     game.undo();
                     saveCurrentState();
@@ -682,7 +642,7 @@
             const puzzle = PUZZLE_BANK[currentPuzzleIdx];
             const stepStr = move.from + move.to;
             if (puzzle.solution[currentPuzzleStep] === stepStr) {
-                speakAndLogCoachText("Fantastic move! That is absolutely the precise tactical refutation.");
+                speakAndLogCoachText("Fantastic execution! That is absolutely the precise tactical refutation.");
                 currentPuzzleIdx = (currentPuzzleIdx + 1) % PUZZLE_BANK.length;
                 currentPuzzleStep = 0;
                 setTimeout(() => {
@@ -690,10 +650,9 @@
                     saveCurrentState();
                     updateUI();
                     renderBoard();
-                    speakAndLogCoachText(`Next puzzle loaded: ${PUZZLE_BANK[currentPuzzleIdx].name}. Analyze the field closely.`);
                 }, 2000);
             } else {
-                speakAndLogCoachText("Not quite. That move leaves a structural opening or misses the primary tactical flaw. Try tracing alternative pathways.");
+                speakAndLogCoachText("Not quite. That move leaves a structural vulnerability. Trace the lines again.");
                 setTimeout(() => {
                     game.undo();
                     saveCurrentState();
@@ -711,13 +670,13 @@
         async function fetchGeminiAIResponse(promptString) {
             const key = document.getElementById('apiKey').value.trim();
             if(!key) {
-                return "COACH NOTE: To receive interactive strategic explanations from GM Sophia, please add your Gemini Key above. (Stockfish will still execute moves completely fine offline without it).";
+                return "COACH NOTE: Please insert your Gemini key above. Stockfish runs fine locally, but I need a cloud connection to write tactical feedback.";
             }
             try {
                 const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
                 const payload = {
                     contents: [{ parts: [{ text: promptString }] }],
-                    generationConfig: { maxOutputTokens: 180, temperature: 0.6 }
+                    generationConfig: { maxOutputTokens: 500, temperature: 0.6 } // BUMPED TO 500 TO PREVENT TRUNCATED YODA SENTENCES
                 };
                 const res = await fetch(endpoint, {
                     method: 'POST',
@@ -727,26 +686,25 @@
                 const data = await res.json();
                 return data.candidates[0].content.parts[0].text;
             } catch(e) {
-                console.error(e);
-                return "Sophia is currently experiencing sync latency connecting to the cloud engine framework. Please verify your credentials network settings.";
+                return "I'm having trouble syncing with the cloud context window. Please double-check your network link or API key strings.";
             }
         }
 
         async function triggerSophiaAnalysis(moveSan) {
-            const systemContext = `You are Grandmaster Sophia, an elite, witty, yet firm chess coach. Keep replies under 3 sentences max. 
-            The engine just played the move ${moveSan}. The current board state in FEN is: ${game.fen()}. 
-            Provide immediate tactical feedback explaining why Stockfish made this move or highlight potential counter-threats White needs to plan for.`;
+            const systemContext = `You are Grandmaster Sophia, an elite, highly professional, direct chess coach. 
+            The opponent (Stockfish) just played the move ${moveSan}. The current board state in FEN is: ${game.fen()}. 
+            Provide immediate, high-level tactical feedback explaining the threat this move creates, what structural files it targets, or how White should logically plan a counter. Speak in complete, natural, and assertive sentences. Keep it under 4 sentences.`;
             
             const logWindow = document.getElementById('coachSpeechLog');
-            logWindow.innerHTML += `<p class="text-xs text-amber-400 italic">Sophia is evaluating the engine's response...</p>`;
+            logWindow.innerHTML += `<p class="text-xs text-amber-400 italic">Sophia is evaluating the board...</p>`;
             
             const reply = await fetchGeminiAIResponse(systemContext);
             speakAndLogCoachText(reply);
         }
 
         async function draftMidgameStrategicPlan() {
-            const systemContext = `You are Grandmaster Sophia. Analyze the following current board layout state FEN: ${game.fen()}. 
-            Outline a direct, concise 3-step master plan for white based on the pawn structure and minor piece coordination. Formatting should be crisp, utilizing bold headers. Max 4 sentences total.`;
+            const systemContext = `You are Grandmaster Sophia, the chess tutor. Analyze this FEN position: ${game.fen()}. 
+            Outline a clear 3-step master plan for white based on the piece coordination and pawn structures. Format your response cleanly with bold markers. Speak in clean, professional, complete sentences.`;
             
             const logWindow = document.getElementById('coachSpeechLog');
             logWindow.innerHTML += `<p class="text-xs text-amber-400 italic">Sophia is drafting structural plans...</p>`;
@@ -764,7 +722,7 @@
             logWindow.innerHTML += `<div class="bg-[#161512] p-2 rounded border border-[#312e2b] text-xs text-right mb-2"><span class="text-gray-400 font-bold">You:</span> ${txt}</div>`;
             input.value = '';
 
-            const systemContext = `You are Grandmaster Sophia, the chess coach. The user is asking: "${txt}". The current position FEN is ${game.fen()}. Answer them accurately, blending instructional guidance with professional chess insight. Keep it under 4 sentences.`;
+            const systemContext = `You are Grandmaster Sophia, the chess coach. The user is asking you: "${txt}" about this FEN position: ${game.fen()}. Give them an incredibly insightful, articulate, and complete answer. Do not truncate your sentences.`;
             const reply = await fetchGeminiAIResponse(systemContext);
             speakAndLogCoachText(reply);
         }
@@ -775,7 +733,7 @@
             loaders.forEach(l => l.remove());
 
             logWindow.innerHTML += `
-                <div class="flex items-start space-x-2 bg-[#312e2b]/40 p-2.5 rounded border border-[#312e2b] mb-2 animate-fade-in">
+                <div class="flex items-start space-x-2 bg-[#312e2b]/40 p-2.5 rounded border border-[#312e2b] mb-2">
                     <div class="w-6 h-6 rounded-full bg-[#81b64c] text-[10px] font-bold flex items-center justify-center text-[#161512] shrink-0">SP</div>
                     <div><span class="text-[#81b64c] font-bold text-xs block mb-0.5">Sophia:</span> ${text}</div>
                 </div>
@@ -783,7 +741,6 @@
             logWindow.scrollTop = logWindow.scrollHeight;
 
             if (!voiceActive) return;
-
             const key = document.getElementById('apiKey').value.trim();
             if(!key) return; 
 
@@ -795,7 +752,7 @@
                 if (targetedVoice) utterance.voice = targetedVoice;
                 utterance.rate = 1.05;
                 window.speechSynthesis.speak(utterance);
-            } catch (e) { console.warn("TTS Integration warning fallback applied:", e); }
+            } catch (e) { console.warn("TTS fallback applied:", e); }
         }
     </script>
 </body>
