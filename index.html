@@ -1,1384 +1,843 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Grandmaster Sophia - Interactive AI Chess Coach</title>
+    <title>GM Sophia: AI Chess Tutor & Stockfish Engine</title>
     <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Chess.js for Game Logic -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
-    <!-- Chess.js for move validation and logic -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-    <!-- Marked.js for rendering beautiful AI markdown responses -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .chessboard {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            aspect-ratio: 1;
+            width: 100%;
+            max-width: 600px;
+            border: 4px solid #262522;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
         }
-        .serif-title {
-            font-family: 'Playfair Display', serif;
+        .square {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.15s ease;
         }
-        /* Custom scrollbars */
-        ::-webkit-scrollbar {
-            width: 6px;
+        .light-square { background-color: #ebecd0; color: #779556; }
+        .dark-square { background-color: #779556; color: #ebecd0; }
+        .square.selected { background-color: rgba(247, 247, 105, 0.6) !important; }
+        .square.highlighted::after {
+            content: '';
+            width: 24%;
+            height: 24%;
+            background-color: rgba(0, 0, 0, 0.15);
+            border-radius: 50%;
+            position: absolute;
         }
-        ::-webkit-scrollbar-track {
-            background: #0f172a;
+        .square.highlighted.has-piece::after {
+            width: 90%;
+            height: 90%;
+            background-color: transparent;
+            border: 4px solid rgba(0, 0, 0, 0.15);
+            border-radius: 50%;
         }
-        ::-webkit-scrollbar-thumb {
-            background: #334155;
-            border-radius: 3px;
+        .piece {
+            width: 90%;
+            height: 90%;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            z-index: 10;
+            transition: transform 0.1s ease;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #475569;
-        }
+        .piece:active { transform: scale(1.1); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #262522; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #45433f; border-radius: 3px; }
     </style>
 </head>
-<body class="h-full flex flex-col overflow-hidden">
+<body class="bg-[#161512] text-[#f1f1f1] min-h-screen flex flex-col">
 
-<script>
-    /* Custom sound generation using Web Audio API to guarantee sound effects work instantly offline */
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    function playSound(type) {
-        try {
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-
-            if (type === 'move') {
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(320, audioCtx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(240, audioCtx.currentTime + 0.1);
-                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.12);
-            } else if (type === 'capture') {
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(180, audioCtx.currentTime);
-                osc.frequency.setValueAtTime(280, audioCtx.currentTime + 0.04);
-                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.15);
-            } else if (type === 'check') {
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-                osc.frequency.setValueAtTime(554, audioCtx.currentTime + 0.08);
-                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.25);
-            } else if (type === 'success') {
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
-                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
-                osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
-                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-                osc.start();
-                osc.stop(audioCtx.currentTime + 0.4);
-            }
-        } catch (e) {
-            console.warn("Audio playback context failed to initialize: ", e);
-        }
-    }
-
-    /* Convert Base64 payload to WAV Blob for Gemini TTS Player */
-    function base64ToArrayBuffer(base64) {
-        const binaryString = window.atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-    }
-
-    function pcmToWav(pcm16Data, sampleRate) {
-        const buffer = new ArrayBuffer(44 + pcm16Data.length * 2);
-        const view = new DataView(buffer);
-
-        /* RIFF identifier */
-        view.setUint32(0, 0x46464952, true); // "RIFF"
-        view.setUint32(4, 36 + pcm16Data.length * 2, true); // file length - 8
-        view.setUint32(8, 0x45564157, true); // "WAVE"
-
-        /* Subchunk 1 (fmt) */
-        view.setUint32(12, 0x20746d66, true); // "fmt "
-        view.setUint32(16, 16, true); // chunk size
-        view.setUint16(20, 1, true); // compression code (PCM)
-        view.setUint16(22, 1, true); // channel count (mono)
-        view.setUint32(24, sampleRate, true); // sample rate
-        view.setUint32(28, sampleRate * 2, true); // byte rate
-        view.setUint16(32, 2, true); // block align
-        view.setUint16(34, 16, true); // bits per sample
-
-        /* Subchunk 2 (data) */
-        view.setUint32(36, 0x61746164, true); // "data"
-        view.setUint32(40, pcm16Data.length * 2, true);
-
-        // Write PCM samples
-        for (let i = 0; i < pcm16Data.length; i++) {
-            view.setInt16(44 + i * 2, pcm16Data[i], true);
-        }
-
-        return new Blob([buffer], { type: 'audio/wav' });
-    }
-</script>
-
-<!-- Top Navigation Header -->
-<header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap gap-4 items-center justify-between z-10">
-    <div class="flex items-center space-x-3">
-        <div class="bg-amber-500 text-slate-950 p-2.5 rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center">
-            <i class="fa-solid fa-chess-knight text-2xl animate-pulse"></i>
+    <!-- Top Navigation Bar -->
+    <header class="bg-[#262522] border-b border-[#312e2b] px-6 py-4 flex justify-between items-center shadow-md">
+        <div class="flex items-center space-x-3">
+            <i class="fa-solid fa-chess-knight text-3xl text-[#81b64c]"></i>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">Grandmaster Sophia</h1>
+                <p class="text-xs text-[#bababa]">Interactive Stockfish AI Chess Coach</p>
+            </div>
         </div>
-        <div>
-            <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-amber-400 via-amber-200 to-white bg-clip-text text-transparent flex items-center gap-2">
-                GM Sophia <span class="text-xs bg-amber-500/10 text-amber-400 font-semibold px-2 py-0.5 rounded border border-amber-500/20 uppercase tracking-widest">AI Tutor</span>
-            </h1>
-            <p class="text-xs text-slate-400">Interactive Grandmaster Chess Trainer</p>
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2 bg-[#161512] px-3 py-1.5 rounded border border-[#312e2b]">
+                <label for="apiKey" class="text-xs font-medium text-[#bababa]">API Key:</label>
+                <input type="password" id="apiKey" placeholder="Paste Gemini Key..." class="bg-transparent text-xs text-white focus:outline-none w-40">
+            </div>
+            <button id="resetAppBtn" class="bg-rose-700/80 hover:bg-rose-700 text-white text-xs font-semibold px-3 py-1.5 rounded transition shadow">
+                <i class="fa-solid fa-rotate-left mr-1"></i> Reset Engine
+            </button>
         </div>
-    </div>
-    
-    <!-- Mode Quick Selectors -->
-    <div class="flex items-center bg-slate-950 p-1.5 rounded-xl border border-slate-800 space-x-1">
-        <button id="mode-play" onclick="switchMainMode('play')" class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 bg-amber-500 text-slate-950 shadow-md">
-            <i class="fa-solid fa-play mr-2"></i>Play & Learn
-        </button>
-        <button id="mode-openings" onclick="switchMainMode('openings')" class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-900">
-            <i class="fa-solid fa-book-open mr-2"></i>Openings
-        </button>
-        <button id="mode-puzzles" onclick="switchMainMode('puzzles')" class="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-900">
-            <i class="fa-solid fa-puzzle-piece mr-2"></i>Tactics Lab
-        </button>
-    </div>
+    </header>
 
-    <!-- Right Controls: Audio toggler and status lights -->
-    <div class="flex items-center space-x-4">
-        <!-- Voice Configuration Dropdown -->
-        <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-            <span class="text-xs text-slate-400 font-medium">Voice:</span>
-            <select id="tutor-voice" class="bg-transparent text-xs text-amber-400 font-semibold focus:outline-none cursor-pointer">
-                <option value="Sadaltager" class="bg-slate-900">Sadaltager (Wise GM)</option>
-                <option value="Zephyr" class="bg-slate-900">Zephyr (Bright Coach)</option>
-                <option value="Puck" class="bg-slate-900">Puck (Upbeat Analyst)</option>
-                <option value="Kore" class="bg-slate-900">Kore (Firm Master)</option>
-            </select>
-        </div>
-
-        <button id="btn-toggle-speech" onclick="toggleSpeech()" class="flex items-center space-x-2 bg-slate-800/80 hover:bg-slate-800 px-4 py-2 rounded-xl text-slate-200 border border-slate-700 transition-all duration-150">
-            <span id="speech-icon" class="text-amber-500"><i class="fa-solid fa-volume-high animate-bounce"></i></span>
-            <span id="speech-status-text" class="text-xs font-semibold">Voice Enabled</span>
-        </button>
-    </div>
-</header>
-
-<!-- Main Application Workspace -->
-<main class="flex-1 flex flex-col lg:flex-row overflow-hidden">
-    <!-- Left Column: The Board Area & Evaluation Meter -->
-    <section class="flex-1 flex flex-col md:flex-row bg-slate-950 p-4 md:p-6 items-center justify-center gap-6 overflow-y-auto lg:overflow-hidden relative border-r border-slate-900">
+    <!-- Main Dynamic Workspace -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        <!-- Vertical Evaluation Meter -->
-        <div class="flex flex-row md:flex-col items-center h-4 md:h-[480px] w-[320px] md:w-5 bg-slate-800 rounded-full overflow-hidden shadow-inner border border-slate-700 relative">
-            <div id="eval-white" class="bg-slate-200 h-1/2 md:h-1/2 w-1/2 md:w-full transition-all duration-700 ease-out"></div>
-            <div id="eval-black" class="bg-slate-900 h-1/2 md:h-1/2 w-1/2 md:w-full transition-all duration-700 ease-out"></div>
-            <div class="absolute inset-0 flex md:flex-col justify-between items-center px-2 py-3 pointer-events-none text-[9px] font-bold mix-blend-difference text-white">
-                <span>+M</span>
-                <span>0.0</span>
-                <span>-M</span>
-            </div>
-        </div>
-
-        <!-- The Chess Arena container -->
-        <div class="flex flex-col items-center max-w-[480px] w-full">
-            <!-- Active Player & Board Status Bar -->
-            <div class="w-full flex justify-between items-center mb-3 bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-800 shadow-sm">
-                <div class="flex items-center space-x-2.5">
-                    <span id="player-turn-indicator" class="h-3 w-3 rounded-full bg-emerald-500 animate-ping"></span>
-                    <span id="player-turn-text" class="text-xs font-bold uppercase tracking-wider text-slate-300">White's Turn</span>
-                </div>
-                <div id="material-advantage" class="text-xs font-bold text-amber-400">
-                    Even Material
-                </div>
-            </div>
-
-            <!-- Responsive Interactive Chessboard -->
-            <div id="board-container" class="w-full aspect-square bg-slate-900 border-4 border-slate-800 rounded-2xl shadow-2xl relative overflow-hidden grid grid-cols-8 grid-rows-8">
-                <!-- Board grid gets dynamically generated by Javascript -->
-            </div>
-
-            <!-- Secondary Actions Row -->
-            <div class="w-full mt-4 flex justify-between gap-3 flex-wrap">
-                <div class="flex space-x-2">
-                    <button onclick="undoLastMove()" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all">
-                        <i class="fa-solid fa-arrow-left"></i> <span>Undo Move</span>
+        <!-- Left Column: App Settings & Tactical Controls -->
+        <section class="lg:col-span-3 flex flex-col space-y-4">
+            <!-- Training Modules Selection Card -->
+            <div class="bg-[#262522] rounded-lg p-4 border border-[#312e2b] shadow-sm">
+                <h2 class="text-sm font-bold uppercase tracking-wider text-[#bababa] mb-3"><i class="fa-solid fa-graduation-cap mr-1.5 text-[#81b64c]"></i> Training Mode</h2>
+                <div class="space-y-2" id="moduleTabs">
+                    <button data-module="freeplay" class="w-full text-left bg-[#312e2b] hover:bg-[#3d3a35] border-l-4 border-[#81b64c] p-3 rounded text-sm font-medium transition flex items-center justify-between">
+                        <span>vs Stockfish Engine</span>
+                        <i class="fa-solid fa-robot text-xs text-[#81b64c]"></i>
                     </button>
-                    <button onclick="resetBoard()" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all">
-                        <i class="fa-solid fa-rotate-left"></i> <span>Reset</span>
+                    <button data-module="openings" class="w-full text-left bg-[#21201d] hover:bg-[#3d3a35] border-l-4 border-transparent p-3 rounded text-sm font-medium transition flex items-center justify-between opacity-70 hover:opacity-100">
+                        <span>Opening Masterclass</span>
+                        <i class="fa-solid fa-book-open text-xs"></i>
+                    </button>
+                    <button data-module="midgame" class="w-full text-left bg-[#21201d] hover:bg-[#3d3a35] border-l-4 border-transparent p-3 rounded text-sm font-medium transition flex items-center justify-between opacity-70 hover:opacity-100">
+                        <span>Midgame Strategy Planner</span>
+                        <i class="fa-solid fa-chess-rook text-xs"></i>
+                    </button>
+                    <button data-module="puzzles" class="w-full text-left bg-[#21201d] hover:bg-[#3d3a35] border-l-4 border-transparent p-3 rounded text-sm font-medium transition flex items-center justify-between opacity-70 hover:opacity-100">
+                        <span>Tactics & Puzzles Lab</span>
+                        <i class="fa-solid fa-puzzle-piece text-xs"></i>
                     </button>
                 </div>
 
-                <div class="flex space-x-2">
-                    <button onclick="flipBoard()" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all">
-                        <i class="fa-solid fa-arrows-up-down"></i> <span>Flip Board</span>
-                    </button>
-                    <button onclick="triggerStrategicPlan()" id="btn-strategic-plan" class="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md shadow-amber-500/10">
-                        <i class="fa-solid fa-lightbulb"></i> <span>Request Strategy Plan</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Right Column: Interactive Tutor Workspace -->
-    <aside class="w-full lg:w-[460px] bg-slate-900 flex flex-col border-l border-slate-800 overflow-hidden h-full">
-        <!-- Tab Navigation for Sidebar Modules -->
-        <div class="flex border-b border-slate-800 bg-slate-950 p-2 gap-1.5">
-            <button id="tab-tutor" onclick="switchSidebarTab('tutor')" class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 bg-slate-900 text-amber-400 border border-slate-800">
-                <i class="fa-solid fa-comment-dots mr-1.5"></i>Tutor Chat
-            </button>
-            <button id="tab-openings" onclick="switchSidebarTab('openings')" class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 text-slate-400 hover:text-white">
-                <i class="fa-solid fa-book-bookmark mr-1.5"></i>Openings
-            </button>
-            <button id="tab-puzzles" onclick="switchSidebarTab('puzzles')" class="flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 text-slate-400 hover:text-white">
-                <i class="fa-solid fa-graduation-cap mr-1.5"></i>Puzzles
-            </button>
-        </div>
-
-        <!-- Tab Content Viewport -->
-        <div class="flex-1 overflow-y-auto p-4 flex flex-col justify-between" id="sidebar-viewport">
-            
-            <!-- SECTION 1: TUTOR CHAT & ANALYSIS -->
-            <div id="content-tutor" class="flex flex-col h-full space-y-4">
-                <!-- Coach Info Banner -->
-                <div class="flex items-center space-x-3 bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                    <div class="relative">
-                        <div class="h-11 w-11 bg-gradient-to-tr from-amber-500 to-yellow-300 rounded-xl flex items-center justify-center text-slate-950 font-extrabold shadow-md">
-                            GM
-                        </div>
-                        <span class="absolute bottom-0 right-0 h-3 w-3 bg-emerald-500 border-2 border-slate-950 rounded-full"></span>
+                <!-- Stockfish Engine Difficulty Slider -->
+                <div class="mt-4 pt-4 border-t border-[#312e2b]">
+                    <div class="flex justify-between items-center mb-1">
+                        <label for="difficultySlider" class="text-xs font-semibold text-[#bababa]">Stockfish Level:</label>
+                        <span id="difficultyVal" class="text-xs font-bold text-[#81b64c]">Level 5</span>
                     </div>
-                    <div>
-                        <h3 class="text-sm font-bold text-slate-200">GM Sophia</h3>
-                        <p class="text-xs text-amber-400/90 font-medium">Analyzing position &amp; key choices...</p>
-                    </div>
-                </div>
-
-                <!-- Chat Messages Feed -->
-                <div id="tutor-chat-feed" class="flex-1 overflow-y-auto space-y-3 bg-slate-950 p-3 rounded-2xl border border-slate-800 min-h-[220px] max-h-[360px] text-xs">
-                    <div class="flex items-start space-x-2.5">
-                        <div class="bg-amber-500 text-slate-950 font-extrabold rounded px-1.5 py-0.5 text-[9px]">SOPHIA</div>
-                        <div class="bg-slate-900 border border-slate-800 text-slate-200 p-3 rounded-2xl rounded-tl-none max-w-[85%] leading-relaxed">
-                            Hello! I am your AI Grandmaster Chess Coach. As we play, I will evaluate your moves, ask reflective questions about your plan, and outline tactical alternatives. Let's make some moves! 
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Interactive Multi-Choice Question Area (Triggered by coach interactions) -->
-                <div id="question-panel" class="hidden bg-slate-950 p-4 rounded-2xl border border-amber-500/20 shadow-lg shadow-amber-500/5 animate-fade-in space-y-3">
-                    <div class="flex items-center space-x-2 text-amber-400">
-                        <i class="fa-solid fa-circle-question"></i>
-                        <h4 class="text-xs font-bold uppercase tracking-wider">Coach Challenge!</h4>
-                    </div>
-                    <p id="question-text" class="text-xs text-slate-300 font-medium leading-relaxed">What was your strategic idea with that last development move?</p>
-                    <div id="question-options" class="grid grid-cols-1 gap-2 text-xs">
-                        <!-- Dynamic choices generated by script -->
-                    </div>
-                </div>
-
-                <!-- User text chat to Sophia -->
-                <div class="flex items-center bg-slate-950 border border-slate-800 rounded-2xl p-1.5 focus-within:border-amber-500/50 transition-all">
-                    <input type="text" id="user-chat-input" placeholder="Ask Sophia: 'What is the plan here?'..." class="flex-1 bg-transparent text-xs text-slate-100 placeholder-slate-500 focus:outline-none px-3 py-2" onkeydown="handleChatKeyPress(event)">
-                    <button onclick="sendUserMessage()" class="bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-300 p-2 rounded-xl transition-all h-8 w-8 flex items-center justify-center">
-                        <i class="fa-solid fa-paper-plane text-xs"></i>
-                    </button>
+                    <input type="range" id="difficultySlider" min="1" max="20" value="5" class="w-full accent-[#81b64c] bg-[#161512] h-1.5 rounded-lg cursor-pointer">
                 </div>
             </div>
 
-            <!-- SECTION 2: OPENINGS STUDY -->
-            <div id="content-openings" class="hidden flex-col h-full space-y-4">
-                <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
-                    <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Select opening system:</h3>
-                    <div class="grid grid-cols-2 gap-2 text-xs">
-                        <button onclick="startOpeningLesson('ruy_lopez')" class="bg-slate-900 hover:bg-slate-800 hover:text-amber-400 border border-slate-800 text-slate-300 p-2.5 rounded-xl font-semibold text-left transition-all">
-                            👑 Ruy Lopez
-                        </button>
-                        <button onclick="startOpeningLesson('sicilian')" class="bg-slate-900 hover:bg-slate-800 hover:text-amber-400 border border-slate-800 text-slate-300 p-2.5 rounded-xl font-semibold text-left transition-all">
-                            🦂 Sicilian Defense
-                        </button>
-                        <button onclick="startOpeningLesson('queens_gambit')" class="bg-slate-900 hover:bg-slate-800 hover:text-amber-400 border border-slate-800 text-slate-300 p-2.5 rounded-xl font-semibold text-left transition-all">
-                            ⚔️ Queen's Gambit
-                        </button>
-                        <button onclick="startOpeningLesson('caro_kann')" class="bg-slate-900 hover:bg-slate-800 hover:text-amber-400 border border-slate-800 text-slate-300 p-2.5 rounded-xl font-semibold text-left transition-all">
-                            🛡️ Caro-Kann
-                        </button>
-                    </div>
-                </div>
+            <!-- Contextual Dashboard Panels Based on Mode -->
+            <div id="contextPanel" class="bg-[#262522] rounded-lg p-4 border border-[#312e2b] flex-1 flex flex-col min-h-[200px]">
+                <!-- Filled dynamically by active module configurations -->
+            </div>
+        </section>
 
-                <div id="opening-instruction-box" class="flex-1 bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs overflow-y-auto space-y-3">
-                    <div class="text-slate-400 text-center py-8">
-                        <i class="fa-solid fa-book-open text-3xl text-slate-700 mb-2"></i>
-                        <p>Select an opening system above to begin step-by-step masterclass coaching.</p>
-                    </div>
+        <!-- Center Column: Visual Chessboard & Live Evaluation -->
+        <section class="lg:col-span-5 flex flex-col items-center justify-center space-y-4">
+            <div class="w-full flex justify-between items-center px-1 text-sm font-medium text-[#bababa]">
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 bg-white rounded-sm border border-black"></div>
+                    <span>Stockfish Engine (Black)</span>
                 </div>
+                <div id="engineStatus" class="text-xs font-mono text-amber-500 italic">Ready</div>
             </div>
 
-            <!-- SECTION 3: TACTICS & PUZZLES LAB -->
-            <div id="content-puzzles" class="hidden flex-col h-full space-y-4">
-                <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex justify-between items-center">
-                    <div>
-                        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Tactical Puzzles</h3>
-                        <p class="text-[11px] text-slate-500">Sharpen your tactical vision</p>
-                    </div>
-                    <div class="flex space-x-1.5">
-                        <button onclick="loadPreviousPuzzle()" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 h-8 w-8 rounded-lg flex items-center justify-center transition-all">
-                            <i class="fa-solid fa-chevron-left text-xs"></i>
-                        </button>
-                        <span id="puzzle-index" class="text-xs font-extrabold text-amber-400 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">1 / 5</span>
-                        <button onclick="loadNextPuzzle()" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 h-8 w-8 rounded-lg flex items-center justify-center transition-all">
-                            <i class="fa-solid fa-chevron-right text-xs"></i>
-                        </button>
+            <!-- Interlinked Board Architecture Layout -->
+            <div class="w-full flex space-x-3 items-stretch">
+                <!-- Linear Evaluation Metric Gauge -->
+                <div class="w-5 bg-[#21201d] rounded overflow-hidden flex flex-col border border-[#312e2b] relative">
+                    <div id="evalBlack" class="bg-[#111] w-full transition-all duration-300" style="height: 50%;"></div>
+                    <div id="evalWhite" class="bg-[#fff] w-full flex-1 transition-all duration-300"></div>
+                    <div class="absolute inset-0 flex flex-col justify-between items-center text-[10px] font-bold mix-blend-difference text-white py-1 pointer-events-none">
+                        <span>+M</span>
+                        <span>0.0</span>
+                        <span>-M</span>
                     </div>
                 </div>
+                
+                <!-- Main Board Interactive Grid -->
+                <div id="board" class="chessboard flex-1"></div>
+            </div>
 
-                <div class="flex-1 bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs flex flex-col justify-between space-y-3">
-                    <div class="space-y-3 flex-1 overflow-y-auto">
-                        <div class="flex items-center space-x-2 text-amber-400 font-bold">
-                            <i class="fa-solid fa-circle-exclamation"></i>
-                            <span id="puzzle-theme" class="text-xs uppercase tracking-wider">Loading theme...</span>
-                        </div>
-                        <p id="puzzle-description" class="text-slate-300 leading-relaxed font-medium">White to move and secure a decisive material advantage.</p>
-                        
-                        <div id="puzzle-hint-box" class="hidden bg-amber-500/5 border border-amber-500/20 p-3 rounded-xl space-y-2 text-[11px]">
-                            <div class="text-amber-400 font-bold flex items-center gap-1.5">
-                                <i class="fa-solid fa-lightbulb"></i> AI Hints:
+            <div class="w-full flex justify-between items-center px-1 text-sm font-medium text-[#bababa]">
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 bg-[#779556] rounded-sm"></div>
+                    <span>You (White)</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Column: AI Tutor Coach Panel & Move Notation History -->
+        <section class="lg:col-span-4 flex flex-col space-y-4">
+            <!-- Sophia AI Interactive Interface -->
+            <div class="bg-[#262522] rounded-lg border border-[#312e2b] p-4 flex flex-col flex-1 min-h-[350px] shadow-sm">
+                <div class="flex items-center justify-between border-b border-[#312e2b] pb-3 mb-3">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="relative">
+                            <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-[#81b64c] to-emerald-400 flex items-center justify-center font-bold text-white shadow">
+                                SP
                             </div>
-                            <p id="puzzle-hint-text" class="text-slate-300 leading-relaxed">Let Sophia analyze the tactical motif for you...</p>
+                            <span class="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#262522] rounded-full"></span>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-white">GM Sophia</h3>
+                            <p class="text-xs text-emerald-400 flex items-center"><i class="fa-solid fa-circle text-[6px] mr-1"></i> Continuous Analysis Active</p>
                         </div>
                     </div>
-
-                    <div class="flex space-x-2">
-                        <button onclick="requestTacticalHint()" class="flex-1 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 py-3 rounded-xl font-semibold flex items-center justify-center space-x-2 transition-all">
-                            <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
-                            <span>Ask Coach Sophia Hint</span>
+                    <!-- Audio & Voice Profile Configuration Toggles -->
+                    <div class="flex space-x-1">
+                        <button id="toggleVoiceBtn" class="p-2 bg-[#312e2b] hover:bg-[#3d3a35] text-white rounded text-xs transition" title="Toggle Voice Generation">
+                            <i class="fa-solid fa-volume-high text-[#81b64c]"></i>
                         </button>
                     </div>
                 </div>
+
+                <!-- Live Diagnostics Feed Window -->
+                <div id="coachSpeechLog" class="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1 text-sm leading-relaxed mb-4 text-[#dedede]">
+                    <p class="text-[#bababa] italic">Welcome! I have brought Stockfish directly onto the board. Make a move, and watch me formulate legitimate strategic configurations.</p>
+                </div>
+
+                <!-- Interactive User Query Entry Field -->
+                <div class="mt-auto pt-2 border-t border-[#312e2b] flex space-x-2">
+                    <input type="text" id="coachQueryInput" placeholder="Ask Sophia about this position..." class="flex-1 bg-[#161512] border border-[#312e2b] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-[#81b64c]">
+                    <button id="sendQueryBtn" class="bg-[#81b64c] hover:bg-[#95cd5b] text-[#161512] font-bold px-4 py-2 rounded text-sm transition">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
             </div>
 
-        </div>
-    </aside>
-</main>
+            <!-- Historical Move Notation Storage Log -->
+            <div class="bg-[#262522] rounded-lg border border-[#312e2b] p-4 h-[150px] flex flex-col">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-[#bababa] mb-2">Move Log</h3>
+                <div id="moveLog" class="flex-1 overflow-y-auto custom-scrollbar text-xs font-mono grid grid-cols-2 gap-y-1 gap-x-4 pr-1 text-[#bababa]">
+                    <!-- Filled progressively by sequence tracking -->
+                </div>
+            </div>
+        </section>
+    </main>
 
-<script>
-    /* Gemini API endpoint setup & parameters. Using implicit Key. */
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=`;
-    const ttsApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=`;
-
-    let activeSpeech = true;
-    let currentVoice = "Sadaltager";
-
-    /* Core Chess state engine variables */
-    let chess = new Chess();
-    let currentMainMode = 'play'; // 'play' | 'openings' | 'puzzles'
-    let selectedSquare = null;
-    let boardFlipped = false;
-    let soundMuted = false;
-
-    /* Highlight tracks */
-    let lastMoveFrom = null;
-    let lastMoveTo = null;
-
-    /* Interactive puzzles catalog */
-    const puzzles = [
-        {
-            theme: "Fork / Double Attack",
-            fen: "r1bqk2r/ppp2ppp/2np1n2/4p3/1bP5/2N1PN2/PP1PBPPP/R1BQK2R w KQkq - 2 6",
-            solution: "e2b5", // Bishop pins Knight
-            description: "White has advanced central files. Find the solid bishop pinning strategy that limits black's rapid development.",
-            hint: "The Knight on c6 is currently defending key central squares. Seek a tactical way to pin this active defender."
-        },
-        {
-            theme: "Pins & Tactical pressure",
-            fen: "r1bqk2r/ppp2ppp/2np1n2/1B2p3/1bP1P3/2N2N2/PP1P1PPP/R1BQK2R w KQkq - 4 6",
-            solution: "d2d4",
-            description: "Exploit the pinned state of the knight on c6 by striking directly at the center.",
-            hint: "With the c6 knight firmly pinned by your bishop, its control over the d4 square is heavily compromised. Take the center!"
-        },
-        {
-            theme: "Sacrifice / Back Rank Checkmate",
-            fen: "4r1k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1",
-            solution: "e1e8",
-            description: "Black has left their back rank exposed with absolute zero escape squares for the king.",
-            hint: "Look closely at the single open back rank file. Your rook can deliver a swift and fatal final check."
-        },
-        {
-            theme: "Greek Gift Sacrifice",
-            fen: "r1bqk2r/ppp1bppp/2n1pn2/3p4/2PP4/2N2NP1/PP2PPBP/R1BQK2R w KQkq - 2 6",
-            solution: "f3e5",
-            description: "Find the high-tier positional move that establishes an ironclad knight outpost in the center.",
-            hint: "Black's e6 pawn structure leaves the e5 outpost extremely attractive. Claim space with your knight."
-        },
-        {
-            theme: "Discovered Attack",
-            fen: "r1b1k2r/ppq2ppp/2nbpn2/1B1p4/2PP4/2N2N2/PP3PPP/R1BQR1K1 w KQkq - 4 9",
-            solution: "c4d5",
-            description: "With black's king remaining uncastled, construct a path of discovery to exploit structural vulnerability.",
-            hint: "Look at the e-file rook alignment. Opening up the d5 square can construct severe pins on black's e6 structures."
-        }
-    ];
-    let currentPuzzleIdx = 0;
-
-    /* Track chat history with Sophia */
-    let chatHistory = [];
-
-    /* Curated Interactive Openings library */
-    const openings = {
-        ruy_lopez: {
-            name: "Ruy Lopez (Spanish Opening)",
-            description: "One of the oldest and most strategically robust systems. White targets the knight on c6 to threaten Black's central control on e5.",
-            moves: ["e4", "e5", "Nf3", "Nc6", "Bb5"],
-            explanations: [
-                "Establish immediate central authority and open lines for your queen and bishop.",
-                "Black mirror-develops, matching your central space.",
-                "Develop the knight actively while creating an immediate attacking pressure on black's e5 pawn.",
-                "Black develops naturally, fortifying the central pawn and structural integrity.",
-                "The hallmark of the Spanish. We pressure the defender of the e5-pawn, creating major tactical plans."
-            ]
-        },
-        sicilian: {
-            name: "Sicilian Defense",
-            description: "An aggressive, asymmetrical weapon against 1.e4. Black fights for the center from the flank, aiming for counter-attacks.",
-            moves: ["e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4"],
-            explanations: [
-                "Stake white's claim on the center.",
-                "The asymmetrical calling card of the Sicilian. Controlling the d4 square without mirroring white's pawn.",
-                "Develop the knight to control d4 and prep a rapid central breakthrough.",
-                "Secure the e5 square, guarding against pawn advancement while preparing paths for the light-squared bishop.",
-                "Strike the center! Forcing open files for rapid development.",
-                "Trade the wing pawn for white's central pawn, creating dynamic imbalances.",
-                "Recapture, putting the knight on a central dominating square."
-            ]
-        },
-        queens_gambit: {
-            name: "Queen's Gambit",
-            description: "White sacrifices a wing pawn to gain superior control over the center files.",
-            moves: ["d4", "d5", "c4"],
-            explanations: [
-                "Claim strong control over the d4 and e5 central sectors.",
-                "Black establishes their matching queen's pawn outpost.",
-                "The classic gambit. Offering a flank pawn to distract black's d5 pawn, aiming to take complete control with e4 later."
-            ]
-        },
-        caro_kann: {
-            name: "Caro-Kann Defense",
-            description: "A solid, resilient defensive scheme. Black prepares d5 supported safely by the c6 pawn, prioritizing piece safety.",
-            moves: ["e4", "c6", "d4", "d5"],
-            explanations: [
-                "Standard white central territory push.",
-                "Black prepares a solid central counter-push without blocking the light-squared bishop.",
-                "Establish dual central pawns, claiming massive spatial control.",
-                "The solid counter-strike. Disputing white's central dominance directly."
-            ]
-        }
-    };
-    let activeOpeningLesson = null;
-    let activeOpeningMoveIndex = 0;
-
-    /* Initialize app on load */
-    window.onload = function() {
-        generateBoard();
-        updateBoardDisplay();
-        initializeSpeechIcon();
-        
-        // Greet user
-        addSophiaMessage("Welcome to your personal training center! Select **Play & Learn** to challenge my local analysis engine, explore classic **Openings**, or drill tactical patterns in our **Puzzles** lab.");
-    }
-
-    function toggleSpeech() {
-        activeSpeech = !activeSpeech;
-        initializeSpeechIcon();
-    }
-
-    function initializeSpeechIcon() {
-        const icon = document.getElementById('speech-icon');
-        const text = document.getElementById('speech-status-text');
-        const selectContainer = document.getElementById('tutor-voice');
-        if (activeSpeech) {
-            icon.innerHTML = '<i class="fa-solid fa-volume-high animate-bounce text-amber-400"></i>';
-            text.innerText = "Voice Enabled";
-            text.classList.add('text-amber-400');
-            text.classList.remove('text-slate-400');
-        } else {
-            icon.innerHTML = '<i class="fa-solid fa-volume-xmark text-slate-500"></i>';
-            text.innerText = "Voice Muted";
-            text.classList.add('text-slate-400');
-            text.classList.remove('text-amber-400');
-        }
-    }
-
-    /* Tab controls */
-    function switchMainMode(mode) {
-        currentMainMode = mode;
-        
-        // Sync Buttons
-        document.getElementById('mode-play').className = (mode === 'play') ? 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 bg-amber-500 text-slate-950 shadow-md' : 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-900';
-        document.getElementById('mode-openings').className = (mode === 'openings') ? 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 bg-amber-500 text-slate-950 shadow-md' : 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-900';
-        document.getElementById('mode-puzzles').className = (mode === 'puzzles') ? 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 bg-amber-500 text-slate-950 shadow-md' : 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-900';
-        
-        // Sync Sidebar Tabs
-        switchSidebarTab(mode);
-
-        if (mode === 'puzzles') {
-            loadPuzzle(0);
-        } else if (mode === 'openings') {
-            document.getElementById('opening-instruction-box').innerHTML = `
-                <div class="text-slate-400 text-center py-8">
-                    <i class="fa-solid fa-book-open text-3xl text-slate-700 mb-2"></i>
-                    <p>Select an opening system above to begin step-by-step masterclass coaching.</p>
-                </div>`;
-            activeOpeningLesson = null;
-            resetBoard();
-        } else {
-            resetBoard();
-        }
-    }
-
-    function switchSidebarTab(tab) {
-        document.getElementById('tab-tutor').className = (tab === 'tutor' || tab === 'play') ? 'flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 bg-slate-900 text-amber-400 border border-slate-800' : 'flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 text-slate-400 hover:text-white';
-        document.getElementById('tab-openings').className = (tab === 'openings') ? 'flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 bg-slate-900 text-amber-400 border border-slate-800' : 'flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 text-slate-400 hover:text-white';
-        document.getElementById('tab-puzzles').className = (tab === 'puzzles') ? 'flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 bg-slate-900 text-amber-400 border border-slate-800' : 'flex-1 py-2 rounded-lg text-xs font-semibold transition-all duration-150 text-slate-400 hover:text-white';
-
-        document.getElementById('content-tutor').style.display = (tab === 'tutor' || tab === 'play') ? 'flex' : 'none';
-        document.getElementById('content-openings').style.display = (tab === 'openings') ? 'flex' : 'none';
-        document.getElementById('content-puzzles').style.display = (tab === 'puzzles') ? 'flex' : 'none';
-    }
-</script>
-
-<script>
-    /* Generate standard 8x8 grid structure */
-    function generateBoard() {
-        const container = document.getElementById('board-container');
-        container.innerHTML = '';
-        
-        for (let r = 0; r < 8; r++) {
-            for (let f = 0; f < 8; f++) {
-                // Correct ranks depending on flipped view
-                const rank = boardFlipped ? r : 7 - r;
-                const file = boardFlipped ? 7 - f : f;
-                
-                const square = document.createElement('div');
-                square.dataset.rank = rank;
-                square.dataset.file = file;
-                square.id = `sq-${file}-${rank}`;
-                
-                // Color coloring rule
-                const isDark = (rank + file) % 2 === 0;
-                square.className = `relative aspect-square flex items-center justify-center cursor-pointer transition-colors duration-150 ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`;
-                
-                square.onclick = () => handleSquareClick(file, rank);
-                container.appendChild(square);
-            }
-        }
-    }
-
-    /* Update Board styling, pieces, dots, and annotations */
-    function updateBoardDisplay() {
-        const board = chess.board();
-        
-        for (let r = 0; r < 8; r++) {
-            for (let f = 0; f < 8; f++) {
-                const square = document.getElementById(`sq-${f}-${r}`);
-                if (!square) continue;
-
-                // Clear previous contents
-                square.innerHTML = '';
-
-                // Reset original class list while maintaining square colors
-                const isDark = (r + f) % 2 === 0;
-                square.className = `relative aspect-square flex items-center justify-center cursor-pointer transition-all duration-150 ${isDark ? 'bg-slate-700 text-slate-800' : 'bg-slate-300 text-slate-200'}`;
-
-                // Check highlight requirements
-                if (selectedSquare && selectedSquare.file === f && selectedSquare.rank === r) {
-                    square.classList.add('ring-4', 'ring-amber-400', 'ring-inset', 'z-10');
-                }
-                if (lastMoveFrom && lastMoveFrom.file === f && lastMoveFrom.rank === r) {
-                    square.classList.add('bg-yellow-500/30');
-                }
-                if (lastMoveTo && lastMoveTo.file === f && lastMoveTo.rank === r) {
-                    square.classList.add('bg-yellow-500/40');
-                }
-
-                const piece = board[7 - r][f]; // chess.js 0x88 coordinates adjustments
-                if (piece) {
-                    const img = document.createElement('img');
-                    const colorPrefix = piece.color === 'w' ? 'l' : 'd';
-                    const typeChar = piece.type;
-                    img.src = `https://upload.wikimedia.org/wikipedia/commons/${getPieceImgPath(piece.color, piece.type)}`;
-                    img.className = "w-4/5 h-4/5 select-none object-contain z-10 transition-transform active:scale-95";
-                    square.appendChild(img);
-                }
-
-                // Append rank & file names to corners for visual orientation
-                if (f === (boardFlipped ? 7 : 0)) {
-                    const label = document.createElement('span');
-                    label.className = "absolute top-0.5 left-1 text-[9px] font-bold opacity-40 select-none";
-                    label.innerText = r + 1;
-                    square.appendChild(label);
-                }
-                if (r === (boardFlipped ? 7 : 0)) {
-                    const label = document.createElement('span');
-                    label.className = "absolute bottom-0.5 right-1 text-[9px] font-bold opacity-40 select-none";
-                    label.innerText = String.fromCharCode(97 + f);
-                    square.appendChild(label);
-                }
-            }
-        }
-
-        updateDashboardMetrics();
-    }
-
-    function getPieceImgPath(color, type) {
-        // Precise Wikipedia standard SVGs
-        const mapping = {
-            'w': {
-                'p': '4/45/Chess_plt45.svg',
-                'n': '7/70/Chess_nlt45.svg',
-                'b': 'b/b1/Chess_blt45.svg',
-                'r': '7/72/Chess_rlt45.svg',
-                'q': '1/15/Chess_qlt45.svg',
-                'k': '4/42/Chess_klt45.svg'
+    <!-- App Engine Script Logic Core -->
+    <script>
+        // Module Theoretical Schema Datasets
+        const OPENING_BOOK = {
+            ruy_lopez: {
+                name: "Ruy Lopez",
+                moves: ["e4", "e5", "Nf3", "Nc6", "Bb5"],
+                description: "One of the oldest and most deeply analyzed chess openings. White immediately challenges Black's defensive structure on c6 to build pressure on the e4 pawn center.",
+                coachNotes: ["Classic king-pawn opener.", "Developing the knight target.", "The defining move of the Spanish Game. You're fighting directly for the central quadrants."]
             },
-            'b': {
-                'p': 'c/c7/Chess_pdt45.svg',
-                'n': 'e/ef/Chess_ndt45.svg',
-                'b': '9/98/Chess_bdt45.svg',
-                'r': 'f/ff/Chess_rdt45.svg',
-                'q': '4/47/Chess_qdt45.svg',
-                'k': 'f/f0/Chess_kdt45.svg'
+            sicilian: {
+                name: "Sicilian Defense",
+                moves: ["e4", "c5"],
+                description: "An aggressive, asymmetrical counter-attacking weapon for Black against White's standard king-pawn advance.",
+                coachNotes: ["Standard primary point option.", "An asymmetric statement! Black prevents immediate d4 control without copy-cat symmetry."]
+            },
+            queens_gambit: {
+                name: "Queen's Gambit",
+                moves: ["d4", "d5", "c4"],
+                description: "White sacrifices a flank pawn to gain total positional dominance in the center files.",
+                coachNotes: ["Opening up the queen-side lines.", "Symmetrical pawn structure reply.", "The gambit offer! White aims to swap a wing pawn for total central control."]
+            },
+            caro_kann: {
+                name: "Caro-Kann Defense",
+                moves: ["e4", "c6", "d4", "d5"],
+                description: "A highly resilient, solid defensive framework designed to contest the central lanes safely.",
+                coachNotes: ["Classic starting framework.", "Preparing a solid defensive wall.", "Establishing the main center counterweight.", "Contesting the key real estate safely."]
             }
         };
-        return mapping[color][type];
-    }
-</script>
 
-<script>
-    /* Square click handler */
-    function handleSquareClick(file, rank) {
-        if (chess.game_over()) {
-            addSophiaMessage("The game has concluded! Reset the board to initiate a new session.");
-            return;
-        }
-
-        // Avoid touching opponent's pieces if no piece is currently selected
-        const clickedPiece = chess.get(getSquareStr(file, rank));
-        
-        if (selectedSquare) {
-            // Check if clicking original square to unselect
-            if (selectedSquare.file === file && selectedSquare.rank === rank) {
-                selectedSquare = null;
-                updateBoardDisplay();
-                return;
+        const PUZZLE_BANK = [
+            {
+                id: 1,
+                name: "Back-Rank Tactical Infiltration",
+                fen: "6k1/5ppp/8/8/8/8/8/6RK w - - 0 1",
+                solution: ["Rg1g8"],
+                hints: ["Look closely at Black's back rank. Is there any piece guarding the king?", "The black king is trapped behind its own defensive shield of pawns.", "Find a heavy piece that can deliver an inescapable final check."]
+            },
+            {
+                id: 2,
+                name: "The Royal Knight Fork Scheme",
+                fen: "3qk3/8/3n4/8/3Q4/4N3/8/4K3 w - - 0 1",
+                solution: ["Ne3d5"], 
+                hints: ["Knights thrive on geometric trickery. Look for double attacks.", "Can you put the black king and queen under fire simultaneously?", "Look for a square where your knight hits multiple high-value targets at once."]
             }
-
-            // Attempting to move
-            const sourceStr = getSquareStr(selectedSquare.file, selectedSquare.rank);
-            const targetStr = getSquareStr(file, rank);
-
-            // Fetch list of legal moves
-            const moves = chess.moves({ square: sourceStr, verbose: true });
-            const validMove = moves.find(m => m.to === targetStr);
-
-            if (validMove) {
-                // Execute move
-                const result = chess.move({
-                    from: sourceStr,
-                    to: targetStr,
-                    promotion: 'q' // default Queen promotion
-                });
-
-                if (result) {
-                    // Audio feedback
-                    if (result.captured) {
-                        playSound('capture');
-                    } else {
-                        playSound('move');
-                    }
-
-                    lastMoveFrom = { file: selectedSquare.file, rank: selectedSquare.rank };
-                    lastMoveTo = { file, rank };
-                    selectedSquare = null;
-
-                    updateBoardDisplay();
-
-                    // Evaluate move & prompt tutor actions
-                    handlePostMoveActions(result);
-                    return;
-                }
-            } else if (clickedPiece && clickedPiece.color === chess.turn()) {
-                // Switch piece selection directly if clicked on allied color
-                selectedSquare = { file, rank };
-                highlightLegalMoves(file, rank);
-                return;
-            } else {
-                // Not legal, clear selection
-                selectedSquare = null;
-                updateBoardDisplay();
-            }
-        } else {
-            // Selecting a piece
-            if (clickedPiece && clickedPiece.color === chess.turn()) {
-                selectedSquare = { file, rank };
-                highlightLegalMoves(file, rank);
-            }
-        }
-    }
-
-    function getSquareStr(file, rank) {
-        return String.fromCharCode(97 + file) + (rank + 1);
-    }
-
-    function highlightLegalMoves(file, rank) {
-        updateBoardDisplay(); // reset board layout state
-        const sqStr = getSquareStr(file, rank);
-        const moves = chess.moves({ square: sqStr, verbose: true });
-
-        // Highlight source piece wrapper
-        const srcSquare = document.getElementById(`sq-${file}-${rank}`);
-        if (srcSquare) srcSquare.classList.add('ring-4', 'ring-amber-400', 'ring-inset', 'z-10');
-
-        // Render legal dot targets
-        moves.forEach(m => {
-            const trgSquare = document.getElementById(`sq-${m.to.charCodeAt(0) - 97}-${parseInt(m.to[1]) - 1}`);
-            if (trgSquare) {
-                const dot = document.createElement('div');
-                dot.className = "absolute h-3 w-3 rounded-full bg-amber-500/65 z-20 pointer-events-none";
-                trgSquare.appendChild(dot);
-            }
-        });
-    }
-</script>
-
-<script>
-    /* Basic heuristics calculations for materials balances */
-    function updateDashboardMetrics() {
-        const board = chess.board();
-        let whiteVal = 0;
-        let blackVal = 0;
-
-        const pValues = { 'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0 };
-
-        for (let r = 0; r < 8; r++) {
-            for (let f = 0; f < 8; f++) {
-                const p = board[r][f];
-                if (p) {
-                    if (p.color === 'w') whiteVal += pValues[p.type];
-                    else blackVal += pValues[p.type];
-                }
-            }
-        }
-
-        const scoreDiff = whiteVal - blackVal;
-        const advText = document.getElementById('material-advantage');
-        const activeText = document.getElementById('player-turn-text');
-        
-        if (scoreDiff > 0) {
-            advText.innerText = `White +${scoreDiff}`;
-            updateEvaluationBar(scoreDiff);
-        } else if (scoreDiff < 0) {
-            advText.innerText = `Black +${Math.abs(scoreDiff)}`;
-            updateEvaluationBar(scoreDiff);
-        } else {
-            advText.innerText = `Even Material`;
-            updateEvaluationBar(0);
-        }
-
-        if (chess.in_check()) {
-            playSound('check');
-            activeText.innerText = `${chess.turn() === 'w' ? 'White' : 'Black'} in Check!`;
-            activeText.className = "text-xs font-bold uppercase tracking-wider text-red-500";
-        } else {
-            activeText.innerText = `${chess.turn() === 'w' ? "White's" : "Black's"} Turn`;
-            activeText.className = "text-xs font-bold uppercase tracking-wider text-slate-300";
-        }
-    }
-
-    function updateEvaluationBar(diff) {
-        const whiteBar = document.getElementById('eval-white');
-        const blackBar = document.getElementById('eval-black');
-        
-        // Clamp evaluation percentage
-        let percentage = 50 + (diff * 5);
-        percentage = Math.max(5, Math.min(95, percentage));
-
-        // Horizontal on mobile, vertical on desktop
-        if (window.innerWidth < 768) {
-            whiteBar.style.width = `${percentage}%`;
-            whiteBar.style.height = `100%`;
-            blackBar.style.width = `${100 - percentage}%`;
-            blackBar.style.height = `100%`;
-        } else {
-            whiteBar.style.height = `${100 - percentage}%`;
-            whiteBar.style.width = `100%`;
-            blackBar.style.height = `${percentage}%`;
-            blackBar.style.width = `100%`;
-        }
-    }
-</script>
-
-<script>
-    /* Post move orchestrations */
-    function handlePostMoveActions(userMove) {
-        // Check game status
-        if (chess.game_over()) {
-            handleGameOver();
-            return;
-        }
-
-        if (currentMainMode === 'openings') {
-            handleOpeningMove(userMove);
-            return;
-        }
-
-        if (currentMainMode === 'puzzles') {
-            handlePuzzleMove(userMove);
-            return;
-        }
-
-        // PLAY MODE: Trigger evaluation and let Sophia play her response
-        // Introduce random periodic Coach Question challenges
-        if (Math.random() < 0.25) {
-            triggerCoachQuestion(userMove);
-        } else {
-            // Direct Analysis Prompting
-            evaluateMoveWithTutor(userMove);
-        }
-
-        // Trigger black response using a fast minimax engine
-        setTimeout(() => {
-            makeComputerResponse();
-        }, 700);
-    }
-
-    /* Periodic reflective Coach Question challenge triggers */
-    function triggerCoachQuestion(move) {
-        const questionPanel = document.getElementById('question-panel');
-        const questionText = document.getElementById('question-text');
-        const questionOptions = document.getElementById('question-options');
-
-        questionText.innerText = `GM Sophia asks: "You just played ${move.piece.toUpperCase()} to ${move.to}. What is your core strategic objective?"`;
-        
-        // Generic strategic choices for players
-        const options = [
-            { text: "Claiming territory and controlling center lanes.", type: "center" },
-            { text: "Securing piece safety & prepping defensive structures.", type: "defense" },
-            { text: "Attacking structural weaknesses or targets in Black's territory.", type: "offense" },
-            { text: "Developing piece harmony and long-range connectivity.", type: "development" }
         ];
 
-        questionOptions.innerHTML = '';
-        options.forEach(opt => {
-            const btn = document.createElement('button');
-            btn.className = "w-full bg-slate-900 hover:bg-amber-500 hover:text-slate-950 p-2.5 rounded-xl border border-slate-800 text-left transition-all font-medium text-slate-300";
-            btn.innerText = opt.text;
-            btn.onclick = () => selectStrategyAnswer(opt, move);
-            questionOptions.appendChild(btn);
-        });
+        // System Configuration Globals
+        let game = new Chess();
+        let selectedSquare = null;
+        let activeModule = 'freeplay';
+        let voiceActive = true;
+        let currentOpeningKey = 'ruy_lopez';
+        let currentOpeningStep = 0;
+        let currentPuzzleIdx = 0;
+        let currentPuzzleStep = 0;
+        let stockfishWorker = null;
+        let engineSkillLevel = 5;
 
-        questionPanel.classList.remove('hidden');
-    }
+        // Audio Synthesis Driver Setup
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playTone(freq, type, duration, vol) {
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) { console.error("Audio error:", e); }
+        }
+        function soundMove() { playTone(350, 'sine', 0.1, 0.15); }
+        function soundCapture() { playTone(180, 'triangle', 0.15, 0.25); }
 
-    function selectStrategyAnswer(answer, move) {
-        document.getElementById('question-panel').classList.add('hidden');
-        
-        // Construct analysis prompt incorporating player reflection
-        const prompt = `
-        The player made the move: ${move.color === 'w' ? 'White' : 'Black'} plays ${move.piece.toUpperCase()}${move.to}.
-        When asked why they played it, they answered: "${answer.text}".
-        Analyze this FEN: "${chess.fen()}". Evaluate if this move is structurally logical, and if their stated reasoning is accurate or needs modification. Suggest a better alternative if the move has weaknesses. Give your feedback in a concise 2-3 sentence coaching voice. Keep it warm and grandmaster-level.
-        `;
+        // Initialize Stockfish Web Worker
+        function initStockfish() {
+            try {
+                // Initialize stockfish directly from CDN web worker
+                stockfishWorker = new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
+                
+                stockfishWorker.onmessage = function(event) {
+                    const line = event.data;
+                    
+                    // Listen for evaluation updates
+                    if (line.startsWith('info depth')) {
+                        parseEvaluation(line);
+                    }
+                    
+                    // Listen for the engine's selected best move
+                    if (line.startsWith('bestmove')) {
+                        document.getElementById('engineStatus').innerText = "Ready";
+                        const moveParts = line.split(' ');
+                        const bestMove = moveParts[1];
+                        
+                        if (bestMove && bestMove !== '(none)' && game.turn() === 'b' && activeModule === 'freeplay') {
+                            const fromSq = bestMove.substring(0, 2);
+                            const toSq = bestMove.substring(2, 4);
+                            const promo = bestMove.substring(4, 5) || 'q';
+                            
+                            const parsedMove = game.move({ from: fromSq, to: toSq, promotion: promo });
+                            if (parsedMove) {
+                                if (parsedMove.captured) soundCapture(); else soundMove();
+                                saveCurrentState();
+                                updateUI();
+                                renderBoard();
+                                triggerSophiaAnalysis(parsedMove.san);
+                            }
+                        }
+                    }
+                };
 
-        requestSophiaFeedback(prompt);
-    }
-</script>
-
-<script>
-    /* Local lightweight Chess minimax for responsive bot play */
-    function makeComputerResponse() {
-        if (chess.game_over()) return;
-
-        const bestMove = getMinimaxMove();
-        if (bestMove) {
-            const res = chess.move(bestMove);
-            if (res) {
-                if (res.captured) playSound('capture');
-                else playSound('move');
-
-                lastMoveFrom = { file: bestMove.from.charCodeAt(0) - 97, rank: parseInt(bestMove.from[1]) - 1 };
-                lastMoveTo = { file: bestMove.to.charCodeAt(0) - 97, rank: parseInt(bestMove.to[1]) - 1 };
-                updateBoardDisplay();
-
-                if (chess.game_over()) {
-                    handleGameOver();
-                }
+                // Configure standard UCI engine parameters
+                stockfishWorker.postMessage('uci');
+                stockfishWorker.postMessage(`setoption name Skill Level value ${engineSkillLevel}`);
+                stockfishWorker.postMessage('isready');
+            } catch (err) {
+                console.error("Stockfish compilation setup failed:", err);
+                document.getElementById('engineStatus').innerText = "Engine Error";
             }
         }
-    }
 
-    function getMinimaxMove() {
-        const moves = chess.moves({ verbose: true });
-        if (moves.length === 0) return null;
-
-        // Simple scoring lookup
-        const values = { 'p': 10, 'n': 30, 'b': 30, 'r': 50, 'q': 90, 'k': 900 };
-
-        // 1-Ply quick tactical evaluation for smooth play
-        let bestScore = Infinity; // Black seeks lowest (negative) score or high score
-        let bestMove = moves[Math.floor(Math.random() * moves.length)];
-
-        moves.forEach(m => {
-            let tempChess = new Chess(chess.fen());
-            const result = tempChess.move(m);
-            if (!result) return;
-
+        // Parse Stockfish evaluation strings to update gauge values
+        function parseEvaluation(line) {
             let score = 0;
-            // Calculate material
-            tempChess.board().forEach(row => {
-                row.forEach(p => {
-                    if (p) {
-                        const val = values[p.type];
-                        score += (p.color === 'w' ? val : -val);
+            if (line.includes('score cp')) {
+                const cp = parseInt(line.split('score cp ')[1].split(' ')[0]);
+                score = cp / 100;
+                if (game.turn() === 'b') score = -score; // Normalize perspective
+            } else if (line.includes('score mate')) {
+                const mate = parseInt(line.split('score mate ')[1].split(' ')[0]);
+                score = mate > 0 ? 10 : -10;
+            } else { return; }
+
+            // Convert score into percentage height
+            let percentage = 50 + (score * 5);
+            percentage = Math.max(5, Math.min(95, percentage)); // Clamp between 5% and 95%
+            
+            document.getElementById('evalWhite').style.height = `${percentage}%`;
+            document.getElementById('evalBlack').style.height = `${100 - percentage}%`;
+        }
+
+        function triggerStockfishMove() {
+            if (!stockfishWorker || game.isGameOver() || game.turn() !== 'b') return;
+            document.getElementById('engineStatus').innerText = "Stockfish thinking...";
+            stockfishWorker.postMessage(`position fen ${game.fen()}`);
+            // Force Stockfish to think for up to 800ms max to keep the flow rapid
+            stockfishWorker.postMessage('go movetime 800');
+        }
+
+        // Core App Initialization & Persistence Loader
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSavedState();
+            initDOM();
+            initStockfish();
+            renderBoard();
+            updateUI();
+        });
+
+        // Save State directly to Browser LocalStorage
+        function saveCurrentState() {
+            const state = {
+                fen: game.fen(),
+                history: game.history({ verbose: true }),
+                activeModule: activeModule,
+                currentOpeningKey: currentOpeningKey,
+                currentOpeningStep: currentOpeningStep,
+                currentPuzzleIdx: currentPuzzleIdx,
+                currentPuzzleStep: currentPuzzleStep,
+                engineSkillLevel: engineSkillLevel,
+                apiKey: document.getElementById('apiKey').value
+            };
+            localStorage.setItem('gm_sophia_state', JSON.stringify(state));
+        }
+
+        // Load State directly from Browser LocalStorage
+        function loadSavedState() {
+            const raw = localStorage.getItem('gm_sophia_state');
+            if (!raw) return;
+            try {
+                const state = JSON.parse(raw);
+                if (state.apiKey) document.getElementById('apiKey').value = state.apiKey;
+                if (state.activeModule) activeModule = state.activeModule;
+                if (state.currentOpeningKey) currentOpeningKey = state.currentOpeningKey;
+                if (state.currentOpeningStep) currentOpeningStep = state.currentOpeningStep;
+                if (state.currentPuzzleIdx) currentPuzzleIdx = state.currentPuzzleIdx;
+                if (state.currentPuzzleStep) currentPuzzleStep = state.currentPuzzleStep;
+                if (state.engineSkillLevel) {
+                    engineSkillLevel = state.engineSkillLevel;
+                    document.getElementById('difficultySlider').value = engineSkillLevel;
+                    document.getElementById('difficultyVal').innerText = `Level ${engineSkillLevel}`;
+                }
+                if (state.fen) game.load(state.fen);
+            } catch (e) {
+                console.error("Failed to parse saved state cache:", e);
+                localStorage.removeItem('gm_sophia_state');
+            }
+        }
+
+        function initDOM() {
+            // Module Selection Navigation Click Managers
+            document.querySelectorAll('#moduleTabs button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    activeModule = btn.getAttribute('data-module');
+                    document.querySelectorAll('#moduleTabs button').forEach(b => {
+                        b.classList.remove('bg-[#312e2b]', 'border-[#81b64c]');
+                        b.classList.add('bg-[#21201d]', 'border-transparent', 'opacity-70');
+                    });
+                    btn.classList.add('bg-[#312e2b]', 'border-[#81b64c]');
+                    btn.classList.remove('opacity-70', 'border-transparent');
+                    
+                    if(activeModule === 'openings') {
+                        currentOpeningStep = 0;
+                        game.reset();
+                    } else if (activeModule === 'puzzles') {
+                        currentPuzzleStep = 0;
+                        game.load(PUZZLE_BANK[currentPuzzleIdx].fen);
+                    } else if (activeModule === 'freeplay') {
+                        game.reset();
                     }
+                    
+                    selectedSquare = null;
+                    saveCurrentState();
+                    renderBoard();
+                    updateUI();
                 });
             });
 
-            // If checkmate, secure it
-            if (tempChess.in_checkmate()) {
-                score = -99999;
-            }
-
-            if (score < bestScore) {
-                bestScore = score;
-                bestMove = m;
-            }
-        });
-
-        return bestMove;
-    }
-
-    function handleGameOver() {
-        if (chess.in_checkmate()) {
-            addSophiaMessage("Checkmate! The battle is resolved. Excellent tactical perseverance.");
-            playSound('success');
-        } else if (chess.in_draw()) {
-            addSophiaMessage("Draw! The game has stalled out in structural symmetry.");
-        }
-    }
-</script>
-
-<script>
-    /* Evaluate player move and prompt Grandmaster comments */
-    async function evaluateMoveWithTutor(move) {
-        const prompt = `
-        The player just made the chess move: ${move.color === 'w' ? 'White' : 'Black'} played ${move.piece.toUpperCase()} to ${move.to}.
-        Current position FEN: "${chess.fen()}".
-        Explain the tactical ideas behind this move. Is it a solid developing move, or did it expose any potential tactical flaws (like pins or loose squares)? Provide structured, concise feedback (max 3 sentences) directly addressing the player in a grandmaster tutor voice.
-        `;
-        requestSophiaFeedback(prompt);
-    }
-
-    /* Plan dynamic strategical review of full board position */
-    async function triggerStrategicPlan() {
-        const btn = document.getElementById('btn-strategic-plan');
-        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> <span>Analyzing FEN...</span>`;
-        btn.disabled = true;
-
-        const prompt = `
-        Please review this current FEN state: "${chess.fen()}".
-        Provide an encouraging, deep strategic summary:
-        1. King safety & pawn structural integrity.
-        2. Piece activity evaluation (e.g. outposts, blockades).
-        3. A solid 3-step master plan of development for both sides.
-        Make the response clean, beautifully formatted with bold keywords, and professional.
-        `;
-
-        await requestSophiaFeedback(prompt);
-        
-        btn.innerHTML = `<i class="fa-solid fa-lightbulb"></i> <span>Request Strategy Plan</span>`;
-        btn.disabled = false;
-    }
-
-    /* Central Gemini API handling module */
-    async function requestSophiaFeedback(userPrompt) {
-        const feed = document.getElementById('tutor-chat-feed');
-        
-        // Add typing indicator
-        const typingId = "sophia-typing-indicator";
-        const typingDiv = document.createElement('div');
-        typingDiv.id = typingId;
-        typingDiv.className = "flex items-center space-x-2.5 text-xs text-slate-400 font-medium italic animate-pulse";
-        typingDiv.innerHTML = `<div class="bg-amber-500 text-slate-950 font-extrabold rounded px-1.5 py-0.5 text-[9px]">SOPHIA</div><span>Sophia is contemplating the board...</span>`;
-        feed.appendChild(typingDiv);
-        feed.scrollTop = feed.scrollHeight;
-
-        try {
-            const systemPrompt = "You are GM Sophia, a world-class chess grandmaster and elite tutor. Explain positional motifs clearly and encourage strategic mastery.";
-            const payload = {
-                contents: [{ parts: [{ text: userPrompt }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] }
-            };
-
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+            // Difficulty Slider Monitor
+            document.getElementById('difficultySlider').addEventListener('input', (e) => {
+                engineSkillLevel = e.target.value;
+                document.getElementById('difficultyVal').innerText = `Level ${engineSkillLevel}`;
+                if (stockfishWorker) {
+                    stockfishWorker.postMessage(`setoption name Skill Level value ${engineSkillLevel}`);
+                }
+                saveCurrentState();
             });
 
-            const result = await response.json();
-            const candidate = result.candidates?.[0];
-            
-            // Remove typing block
-            const element = document.getElementById(typingId);
-            if (element) element.remove();
-
-            if (candidate && candidate.content?.parts?.[0]?.text) {
-                const responseText = candidate.content.parts[0].text;
-                addSophiaMessage(responseText);
-
-                // Narrate with TTS if enabled
-                if (activeSpeech) {
-                    generateTutorSpeech(responseText);
+            // Synchronize active navigation button highlights on reload
+            document.querySelectorAll('#moduleTabs button').forEach(btn => {
+                if (btn.getAttribute('data-module') === activeModule) {
+                    btn.click();
                 }
-            } else {
-                addSophiaMessage("The board looks incredibly dynamic, my focus remains on positional harmony here!");
-            }
-        } catch (error) {
-            console.error("API Call error:", error);
-            const element = document.getElementById(typingId);
-            if (element) element.remove();
-            addSophiaMessage("Excellent positional layout! Continue playing to build tactical depth.");
+            });
+
+            // System Event Triggers
+            document.getElementById('sendQueryBtn').addEventListener('click', handleUserQuery);
+            document.getElementById('coachQueryInput').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleUserQuery(); });
+            document.getElementById('toggleVoiceBtn').addEventListener('click', () => {
+                voiceActive = !voiceActive;
+                document.getElementById('toggleVoiceBtn').innerHTML = voiceActive ? 
+                    `<i class="fa-solid fa-volume-high text-[#81b64c]"></i>` : `<i class="fa-solid fa-volume-xmark text-rose-500"></i>`;
+            });
+            document.getElementById('apiKey').addEventListener('input', saveCurrentState);
+            
+            // Hard wipe and reset app button
+            document.getElementById('resetAppBtn').addEventListener('click', () => {
+                if (confirm("Are you sure you want to completely reset the application? This will clear your saved games.")) {
+                    localStorage.removeItem('gm_sophia_state');
+                    game.reset();
+                    activeModule = 'freeplay';
+                    currentOpeningStep = 0;
+                    currentPuzzleIdx = 0;
+                    currentPuzzleStep = 0;
+                    window.location.reload();
+                }
+            });
         }
-    }
 
-    /* TTS Audio generator via Gemini Model */
-    async function generateTutorSpeech(textToSay) {
-        try {
-            // Clean up text of markdown tags for clean vocal delivery
-            const cleanText = textToSay.replace(/[*#`_\-]/g, '').slice(0, 150); // limit to protect bandwidth
+        // Render Chessboard Grid UI Layout
+        function renderBoard() {
+            const boardDiv = document.getElementById('board');
+            boardDiv.innerHTML = '';
+            const boardState = game.board();
 
-            const payload = {
-                contents: [{
-                    parts: [{ text: `Say clearly in a professional voice: ${cleanText}` }]
-                }],
-                generationConfig: {
-                    responseModalities: ["AUDIO"],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: currentVoice }
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const row = 7 - r;
+                    const col = c;
+                    const squareObj = boardState[row][col];
+                    const file = String.fromCharCode(97 + col);
+                    const rank = row + 1;
+                    const squareName = file + rank;
+
+                    const sq = document.createElement('div');
+                    sq.className = `square ${(row + col) % 2 === 1 ? 'light-square' : 'dark-square'}`;
+                    sq.dataset.square = squareName;
+
+                    if (selectedSquare === squareName) sq.classList.add('selected');
+
+                    if (selectedSquare) {
+                        const moves = game.moves({ square: selectedSquare, verbose: true });
+                        if (moves.some(m => m.to === squareName)) {
+                            sq.classList.add('highlighted');
+                            if (squareObj) sq.classList.add('has-piece');
                         }
                     }
-                },
-                model: "gemini-2.5-flash-preview-tts"
-            };
 
-            const response = await fetch(ttsApiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+                    if (squareObj) {
+                        const piece = document.createElement('div');
+                        piece.className = 'piece';
+                        const colorCode = squareObj.color;
+                        const typeCode = squareObj.type.toUpperCase();
+                        piece.style.backgroundImage = `url('https://upload.wikimedia.org/wikipedia/commons/${getPieceImgPath(colorCode, typeCode)}')`;
+                        sq.appendChild(piece);
+                    }
 
-            const result = await response.json();
-            const part = result?.candidates?.[0]?.content?.parts?.[0];
-            const audioData = part?.inlineData?.data;
-            const mimeType = part?.inlineData?.mimeType;
-
-            if (audioData && mimeType && mimeType.startsWith("audio/")) {
-                const sampleRate = parseInt(mimeType.match(/rate=(\d+)/)[1], 10);
-                const pcmData = base64ToArrayBuffer(audioData);
-                const pcm16 = new Int16Array(pcmData);
-                const wavBlob = pcmToWav(pcm16, sampleRate);
-                const audioUrl = URL.createObjectURL(wavBlob);
-                
-                const audio = new Audio(audioUrl);
-                audio.play();
+                    sq.addEventListener('click', () => handleSquareClick(squareName));
+                    boardDiv.appendChild(sq);
+                }
             }
-        } catch (e) {
-            console.warn("TTS processing experienced latency or interface constraints:", e);
         }
-    }
-</script>
 
-<script>
-    /* Openings Masterclass setup */
-    function startOpeningLesson(opKey) {
-        activeOpeningLesson = openings[opKey];
-        activeOpeningMoveIndex = 0;
-        chess = new Chess();
-        selectedSquare = null;
-        lastMoveFrom = null;
-        lastMoveTo = null;
-        
-        updateBoardDisplay();
-        renderOpeningInstructions();
-        highlightNextOpeningMove();
-    }
+        function getPieceImgPath(c, t) {
+            const mapping = {
+                'wP': '4/45/Chess_plt45.svg', 'wN': '7/70/Chess_nlt45.svg', 'wB': 'b/b1/Chess_blt45.svg',
+                'wR': '7/72/Chess_rlt45.svg', 'wQ': '1/15/Chess_qlt45.svg', 'wK': '4/42/Chess_klt45.svg',
+                'bP': 'c/c7/Chess_pdt45.svg', 'bN': 'e/ef/Chess_ndt45.svg', 'bB': '9/98/Chess_bdt45.svg',
+                'bR': 'f/ff/Chess_rdt45.svg', 'bQ': '4/47/Chess_qdt45.svg', 'bK': 'f/f0/Chess_kdt45.svg'
+            };
+            return mapping[c + t];
+        }
 
-    function renderOpeningInstructions() {
-        const box = document.getElementById('opening-instruction-box');
-        if (!activeOpeningLesson) return;
+        // Game Movement Interaction Processor
+        function handleSquareClick(sqName) {
+            if (game.turn() === 'b' && activeModule === 'freeplay') return; // Freeze clicking on Stockfish's turn
 
-        let movesHtml = "";
-        activeOpeningLesson.moves.forEach((mv, idx) => {
-            const isCompleted = idx < activeOpeningMoveIndex;
-            const isCurrent = idx === activeOpeningMoveIndex;
-            movesHtml += `
-                <div class="flex items-center space-x-3 p-2 rounded-xl transition-all ${isCurrent ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300' : isCompleted ? 'text-slate-400 line-through' : 'text-slate-600'}">
-                    <span class="font-extrabold w-6 text-center">${idx + 1}.</span>
-                    <span class="font-bold w-12">${mv}</span>
-                    <span class="text-[11px] leading-relaxed flex-1">${activeOpeningLesson.explanations[idx]}</span>
+            const moveList = game.moves({ square: selectedSquare, verbose: true });
+            const targetedMove = moveList.find(m => m.to === sqName);
+
+            if (selectedSquare === sqName) {
+                selectedSquare = null;
+            } else if (targetedMove) {
+                executeGameMove(targetedMove);
+                selectedSquare = null;
+            } else {
+                const piece = game.get(sqName);
+                if (piece && piece.color === game.turn()) {
+                    selectedSquare = sqName;
+                } else {
+                    selectedSquare = null;
+                }
+            }
+            renderBoard();
+        }
+
+        function executeGameMove(moveObj) {
+            const parsedMove = game.move({ from: moveObj.from, to: moveObj.to, promotion: 'q' });
+            if (!parsedMove) return;
+
+            if (parsedMove.captured) soundCapture(); else soundMove();
+
+            saveCurrentState();
+            updateUI();
+
+            if (activeModule === 'openings') {
+                verifyOpeningSequence(parsedMove);
+            } else if (activeModule === 'puzzles') {
+                verifyPuzzleSequence(parsedMove);
+            } else {
+                // In freeplay mode, hand the board state immediately over to Stockfish
+                setTimeout(triggerStockfishMove, 400);
+            }
+        }
+
+        // Component UI Refresher Panel
+        function updateUI() {
+            const log = document.getElementById('moveLog');
+            log.innerHTML = '';
+            const history = game.history();
+            for (let i = 0; i < history.length; i += 2) {
+                const num = Math.floor(i / 2) + 1;
+                log.innerHTML += `<div>${num}. ${history[i]}</div><div>${history[i+1] || ''}</div>`;
+            }
+            log.scrollTop = log.scrollHeight;
+
+            if (stockfishWorker && !game.isGameOver()) {
+                stockfishWorker.postMessage(`position fen ${game.fen()}`);
+                stockfishWorker.postMessage('go depth 10'); // Continually background check positions
+            }
+
+            renderContextPanel();
+        }
+
+        // Render Sidebar Menu Modals Dynamically
+        function renderContextPanel() {
+            const panel = document.getElementById('contextPanel');
+            panel.innerHTML = '';
+
+            if (activeModule === 'freeplay') {
+                panel.innerHTML = `
+                    <h3 class="text-sm font-bold text-white mb-2">Engine Mode Active</h3>
+                    <p class="text-xs text-[#bababa] mb-4">Play white against Stockfish. Sophia will act as an advisor, analyzing every calculation layer dynamically.</p>
+                    <button id="clearBoardBtn" class="w-full bg-[#312e2b] hover:bg-[#3d3a35] text-xs font-semibold py-2 rounded text-rose-400 border border-[#45433f] transition">
+                        <i class="fa-solid fa-trash-can mr-1"></i> Clear Board Progress
+                    </button>
+                `;
+                document.getElementById('clearBoardBtn').addEventListener('click', () => {
+                    game.reset();
+                    saveCurrentState();
+                    updateUI();
+                    renderBoard();
+                });
+            } 
+            else if (activeModule === 'openings') {
+                let options = '';
+                Object.keys(OPENING_BOOK).forEach(k => {
+                    options += `<option value="${k}" ${currentOpeningKey === k ? 'selected' : ''}>${OPENING_BOOK[k].name}</option>`;
+                });
+
+                panel.innerHTML = `
+                    <h3 class="text-sm font-bold text-white mb-1">Opening Masterclass</h3>
+                    <p class="text-xs text-[#bababa] mb-3">Learn theoretical schema steps lines precisely.</p>
+                    <select id="openingSelect" class="w-full bg-[#161512] border border-[#312e2b] text-xs p-2 rounded text-white focus:outline-none mb-3">${options}</select>
+                    <div class="bg-[#161512] p-2 rounded border border-[#312e2b] flex-1 overflow-y-auto text-xs space-y-1.5 custom-scrollbar">
+                        <p class="font-semibold text-[#81b64c]">${OPENING_BOOK[currentOpeningKey].name}</p>
+                        <p class="text-[#bababa] text-[11px] leading-relaxed">${OPENING_BOOK[currentOpeningKey].description}</p>
+                        <div class="pt-2 border-t border-[#312e2b]">
+                            <span class="font-bold">Target Moves:</span> 
+                            <span class="font-mono text-amber-400">${OPENING_BOOK[currentOpeningKey].moves.join(' → ')}</span>
+                        </div>
+                    </div>
+                `;
+
+                document.getElementById('openingSelect').addEventListener('change', (e) => {
+                    currentOpeningKey = e.target.value;
+                    currentOpeningStep = 0;
+                    game.reset();
+                    saveCurrentState();
+                    updateUI();
+                    renderBoard();
+                    speakAndLogCoachText(`Let's explore the ${OPENING_BOOK[currentOpeningKey].name}. ${OPENING_BOOK[currentOpeningKey].coachNotes[0]}`);
+                });
+            }
+            else if (activeModule === 'midgame') {
+                panel.innerHTML = `
+                    <h3 class="text-sm font-bold text-white mb-2">Midgame Strategy Planner</h3>
+                    <p class="text-xs text-[#bababa] mb-3">Analyze your current deployment alignment array structure to formulate structural multi-layered plans.</p>
+                    <button id="generatePlanBtn" class="w-full bg-[#81b64c] hover:bg-[#95cd5b] text-[#161512] text-xs font-bold py-2.5 rounded shadow transition">
+                        <i class="fa-solid fa-brain mr-1"></i> Draft 3-Step Strategy Plan
+                    </button>
+                `;
+                document.getElementById('generatePlanBtn').addEventListener('click', draftMidgameStrategicPlan);
+            }
+            else if (activeModule === 'puzzles') {
+                const p = PUZZLE_BANK[currentPuzzleIdx];
+                panel.innerHTML = `
+                    <h3 class="text-sm font-bold text-white mb-1">Tactics Lab</h3>
+                    <p class="text-xs text-[#bababa] mb-3">Solve tactical structures built manually.</p>
+                    <div class="bg-[#161512] p-2 rounded border border-[#312e2b] space-y-2 text-xs flex-1">
+                        <p class="font-semibold text-amber-400"><i class="fa-solid fa-crosshairs mr-1"></i> ${p.name}</p>
+                        <p class="text-[11px] text-[#bababa]">Find the correct sequence to win tactical advantages.</p>
+                        <button id="puzzleHintBtn" class="w-full bg-[#312e2b] hover:bg-[#3d3a35] text-[11px] py-1.5 rounded transition border border-[#45433f]">
+                            <i class="fa-solid fa-lightbulb text-yellow-400 mr-1"></i> Request Next Clue/Hint
+                        </button>
+                    </div>
+                `;
+                document.getElementById('puzzleHintBtn').addEventListener('click', triggerPuzzleHint);
+            }
+        }
+
+        // Opening Track Verification Machine
+        function verifyOpeningSequence(move) {
+            const targetLine = OPENING_BOOK[currentOpeningKey].moves;
+            if (move.san === targetLine[currentOpeningStep]) {
+                currentOpeningStep++;
+                if (currentOpeningStep >= targetLine.length) {
+                    speakAndLogCoachText(`Splendid! You have successfully completed the main line execution path for the ${OPENING_BOOK[currentOpeningKey].name}. You have a fantastic positional setup.`);
+                    currentOpeningStep = 0;
+                } else {
+                    const notes = OPENING_BOOK[currentOpeningKey].coachNotes;
+                    const msg = notes[currentOpeningStep] || "That's exactly the theoretical line. Keep developing your coordinate structure.";
+                    speakAndLogCoachText(msg);
+                    
+                    setTimeout(() => {
+                        if (currentOpeningStep < targetLine.length) {
+                            const bMove = targetLine[currentOpeningStep];
+                            game.move(bMove);
+                            soundMove();
+                            currentOpeningStep++;
+                            saveCurrentState();
+                            updateUI();
+                            renderBoard();
+                        }
+                    }, 900);
+                }
+            } else {
+                speakAndLogCoachText(`Ah, ${move.san} deviates from the main theoretical line of the ${OPENING_BOOK[currentOpeningKey].name}. Let's undo that so you can see why the alternative is preferred.`);
+                setTimeout(() => {
+                    game.undo();
+                    saveCurrentState();
+                    updateUI();
+                    renderBoard();
+                }, 1500);
+            }
+        }
+
+        // Puzzle Logic Verification Framework
+        function verifyPuzzleSequence(move) {
+            const puzzle = PUZZLE_BANK[currentPuzzleIdx];
+            const stepStr = move.from + move.to;
+            if (puzzle.solution[currentPuzzleStep] === stepStr) {
+                speakAndLogCoachText("Fantastic move! That is absolutely the precise tactical refutation.");
+                currentPuzzleIdx = (currentPuzzleIdx + 1) % PUZZLE_BANK.length;
+                currentPuzzleStep = 0;
+                setTimeout(() => {
+                    game.load(PUZZLE_BANK[currentPuzzleIdx].fen);
+                    saveCurrentState();
+                    updateUI();
+                    renderBoard();
+                    speakAndLogCoachText(`Next puzzle loaded: ${PUZZLE_BANK[currentPuzzleIdx].name}. Analyze the field closely.`);
+                }, 2000);
+            } else {
+                speakAndLogCoachText("Not quite. That move leaves a structural opening or misses the primary tactical flaw. Try tracing alternative pathways.");
+                setTimeout(() => {
+                    game.undo();
+                    saveCurrentState();
+                    updateUI();
+                    renderBoard();
+                }, 1500);
+            }
+        }
+
+        function triggerPuzzleHint() {
+            const puzzle = PUZZLE_BANK[currentPuzzleIdx];
+            speakAndLogCoachText(puzzle.hints[Math.floor(Math.random() * puzzle.hints.length)]);
+        }
+
+        // Gemini AI Cloud Pipeline Interfacing Architecture Engine
+        async function fetchGeminiAIResponse(promptString) {
+            const key = document.getElementById('apiKey').value.trim();
+            if(!key) {
+                return "COACH NOTE: To receive interactive strategic explanations from GM Sophia, please add your Gemini Key above. (Stockfish will still execute moves completely fine offline without it).";
+            }
+            try {
+                const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+                const payload = {
+                    contents: [{ parts: [{ text: promptString }] }],
+                    generationConfig: { maxOutputTokens: 180, temperature: 0.6 }
+                };
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                return data.candidates[0].content.parts[0].text;
+            } catch(e) {
+                console.error(e);
+                return "Sophia is currently experiencing sync latency connecting to the cloud engine framework. Please verify your credentials network settings.";
+            }
+        }
+
+        async function triggerSophiaAnalysis(moveSan) {
+            const systemContext = `You are Grandmaster Sophia, an elite, witty, yet firm chess coach. Keep replies under 3 sentences max. 
+            The engine just played the move ${moveSan}. The current board state in FEN is: ${game.fen()}. 
+            Provide immediate tactical feedback explaining why Stockfish made this move or highlight potential counter-threats White needs to plan for.`;
+            
+            const logWindow = document.getElementById('coachSpeechLog');
+            logWindow.innerHTML += `<p class="text-xs text-amber-400 italic">Sophia is evaluating the engine's response...</p>`;
+            
+            const reply = await fetchGeminiAIResponse(systemContext);
+            speakAndLogCoachText(reply);
+        }
+
+        async function draftMidgameStrategicPlan() {
+            const systemContext = `You are Grandmaster Sophia. Analyze the following current board layout state FEN: ${game.fen()}. 
+            Outline a direct, concise 3-step master plan for white based on the pawn structure and minor piece coordination. Formatting should be crisp, utilizing bold headers. Max 4 sentences total.`;
+            
+            const logWindow = document.getElementById('coachSpeechLog');
+            logWindow.innerHTML += `<p class="text-xs text-amber-400 italic">Sophia is drafting structural plans...</p>`;
+            
+            const reply = await fetchGeminiAIResponse(systemContext);
+            speakAndLogCoachText(reply);
+        }
+
+        async function handleUserQuery() {
+            const input = document.getElementById('coachQueryInput');
+            const txt = input.value.trim();
+            if (!txt) return;
+
+            const logWindow = document.getElementById('coachSpeechLog');
+            logWindow.innerHTML += `<div class="bg-[#161512] p-2 rounded border border-[#312e2b] text-xs text-right mb-2"><span class="text-gray-400 font-bold">You:</span> ${txt}</div>`;
+            input.value = '';
+
+            const systemContext = `You are Grandmaster Sophia, the chess coach. The user is asking: "${txt}". The current position FEN is ${game.fen()}. Answer them accurately, blending instructional guidance with professional chess insight. Keep it under 4 sentences.`;
+            const reply = await fetchGeminiAIResponse(systemContext);
+            speakAndLogCoachText(reply);
+        }
+
+        // Voice Output & Text Feed Synchronic Logging Engine
+        async function speakAndLogCoachText(text) {
+            const logWindow = document.getElementById('coachSpeechLog');
+            const loaders = logWindow.querySelectorAll('.text-amber-400');
+            loaders.forEach(l => l.remove());
+
+            logWindow.innerHTML += `
+                <div class="flex items-start space-x-2 bg-[#312e2b]/40 p-2.5 rounded border border-[#312e2b] mb-2 animate-fade-in">
+                    <div class="w-6 h-6 rounded-full bg-[#81b64c] text-[10px] font-bold flex items-center justify-center text-[#161512] shrink-0">SP</div>
+                    <div><span class="text-[#81b64c] font-bold text-xs block mb-0.5">Sophia:</span> ${text}</div>
                 </div>
             `;
-        });
+            logWindow.scrollTop = logWindow.scrollHeight;
 
-        box.innerHTML = `
-            <div class="space-y-4">
-                <div>
-                    <h3 class="text-sm font-bold text-amber-400">${activeOpeningLesson.name}</h3>
-                    <p class="text-[11px] text-slate-400 leading-relaxed mt-1">${activeOpeningLesson.description}</p>
-                </div>
-                <div class="space-y-2 border-t border-slate-800 pt-3">
-                    ${movesHtml}
-                </div>
-            </div>
-        `;
-    }
+            if (!voiceActive) return;
 
-    function highlightNextOpeningMove() {
-        if (!activeOpeningLesson) return;
-        if (activeOpeningMoveIndex >= activeOpeningLesson.moves.length) {
-            addSophiaMessage(`Masterclass Completed! You have mastered the key developmental motifs of the ${activeOpeningLesson.name}.`);
-            playSound('success');
-            return;
+            const key = document.getElementById('apiKey').value.trim();
+            if(!key) return; 
+
+            try {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                const voices = window.speechSynthesis.getVoices();
+                const targetedVoice = voices.find(v => v.name.includes('Google US English') || v.lang.startsWith('en'));
+                if (targetedVoice) utterance.voice = targetedVoice;
+                utterance.rate = 1.05;
+                window.speechSynthesis.speak(utterance);
+            } catch (e) { console.warn("TTS Integration warning fallback applied:", e); }
         }
-
-        // Auto-highlight coordinates
-        addSophiaMessage(`Let's execute the next book move: **${activeOpeningLesson.moves[activeOpeningMoveIndex]}**`);
-    }
-
-    function handleOpeningMove(userMove) {
-        if (!activeOpeningLesson) return;
-
-        const expectedMove = activeOpeningLesson.moves[activeOpeningMoveIndex];
-        const actualMoveNotation = userMove.san;
-
-        if (actualMoveNotation === expectedMove) {
-            activeOpeningMoveIndex++;
-            playSound('success');
-            renderOpeningInstructions();
-
-            if (activeOpeningMoveIndex < activeOpeningLesson.moves.length) {
-                // Opponent counter-move auto execution if white is teaching
-                setTimeout(() => {
-                    const blackExpected = activeOpeningLesson.moves[activeOpeningMoveIndex];
-                    const result = chess.move(blackExpected);
-                    if (result) {
-                        playSound('move');
-                        activeOpeningMoveIndex++;
-                        updateBoardDisplay();
-                        renderOpeningInstructions();
-                        highlightNextOpeningMove();
-                    }
-                }, 800);
-            } else {
-                addSophiaMessage("Outstanding! You successfully constructed the theoretical opening branches.");
-            }
-        } else {
-            // Revert incorrect move
-            addSophiaMessage(`That move diverges from theory. In the ${activeOpeningLesson.name}, play **${expectedMove}** to preserve structural synergy.`);
-            chess.undo();
-            updateBoardDisplay();
-        }
-    }
-</script>
-
-<script>
-    /* Puzzle setup and validator */
-    function loadPuzzle(idx) {
-        currentPuzzleIdx = idx;
-        const puzzle = puzzles[idx];
-        chess = new Chess(puzzle.fen);
-        selectedSquare = null;
-        lastMoveFrom = null;
-        lastMoveTo = null;
-
-        document.getElementById('puzzle-index').innerText = `${idx + 1} / ${puzzles.length}`;
-        document.getElementById('puzzle-theme').innerText = puzzle.theme;
-        document.getElementById('puzzle-description').innerText = puzzle.description;
-        document.getElementById('puzzle-hint-box').classList.add('hidden');
-
-        updateBoardDisplay();
-        addSophiaMessage(`Puzzle loaded! **${puzzle.theme}**. Look carefully at piece relations and find the killer move.`);
-    }
-
-    function loadNextPuzzle() {
-        let nxt = currentPuzzleIdx + 1;
-        if (nxt >= puzzles.length) nxt = 0;
-        loadPuzzle(nxt);
-    }
-
-    function loadPreviousPuzzle() {
-        let prev = currentPuzzleIdx - 1;
-        if (prev < 0) prev = puzzles.length - 1;
-        loadPuzzle(prev);
-    }
-
-    function handlePuzzleMove(move) {
-        const puzzle = puzzles[currentPuzzleIdx];
-        const chosen = move.from + move.to;
-
-        if (chosen === puzzle.solution || move.san === puzzle.solution) {
-            playSound('success');
-            addSophiaMessage(`🎉 Bravo! That is the perfect tactical resolution. You successfully unlocked the **${puzzle.theme}** motif.`);
-            
-            // Render green highlighting on board
-            const targetSquare = document.getElementById(`sq-${move.to.charCodeAt(0) - 97}-${parseInt(move.to[1]) - 1}`);
-            if (targetSquare) {
-                targetSquare.classList.add('bg-emerald-500/30');
-            }
-        } else {
-            playSound('check');
-            addSophiaMessage("Not quite the optimal solution. Think positionally and try another move configuration!");
-            chess.undo();
-            updateBoardDisplay();
-        }
-    }
-
-    /* Dynamic interactive hint requests to Gemini */
-    async function requestTacticalHint() {
-        const puzzle = puzzles[currentPuzzleIdx];
-        const hintBox = document.getElementById('puzzle-hint-box');
-        const hintText = document.getElementById('puzzle-hint-text');
-
-        hintBox.classList.remove('hidden');
-        hintText.innerText = "Sophia is formulating a helpful conceptual clue...";
-
-        const prompt = `
-        We are training on a tactical Chess puzzle.
-        Theme: ${puzzle.theme}
-        Description: ${puzzle.description}
-        Target Solution (do NOT reveal this exact move, e.g. if solution is e2b5, do not write e2b5): "${puzzle.solution}".
-        Current position FEN: "${puzzle.fen}".
-        Provide a helpful, strategic, step-by-step conceptual hint that guides the player to notice the weakness, pinned status, or mate threats on the board without spoiling the actual solution move. Keep it to 2 highly encouraging sentences.
-        `;
-
-        try {
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-            });
-
-            const result = await response.json();
-            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-                hintText.innerText = text;
-            } else {
-                hintText.innerText = puzzle.hint;
-            }
-        } catch (error) {
-            hintText.innerText = puzzle.hint;
-        }
-    }
-</script>
-
-<script>
-    /* Conversational chat handling elements */
-    function handleChatKeyPress(event) {
-        if (event.key === 'Enter') {
-            sendUserMessage();
-        }
-    }
-
-    function sendUserMessage() {
-        const input = document.getElementById('user-chat-input');
-        const text = input.value.trim();
-        if (!text) return;
-
-        // Render user bubble
-        addUserMessage(text);
-        input.value = '';
-
-        // Formulate tutor context prompt
-        const prompt = `
-        The player asks: "${text}".
-        Current Chess board FEN: "${chess.fen()}".
-        Respond to their query with premium Grandmaster advice. If they ask about plans, evaluate the pieces. If they ask generic questions, teach them chess rules or strategic insights. Keep it conversational and concise.
-        `;
-
-        requestSophiaFeedback(prompt);
-    }
-
-    function addSophiaMessage(text) {
-        const feed = document.getElementById('tutor-chat-feed');
-        const msgDiv = document.createElement('div');
-        msgDiv.className = "flex items-start space-x-2.5 animate-fade-in";
-        msgDiv.innerHTML = `
-            <div class="bg-amber-500 text-slate-950 font-extrabold rounded px-1.5 py-0.5 text-[9px] uppercase">Sophia</div>
-            <div class="bg-slate-900 border border-slate-800 text-slate-200 p-3 rounded-2xl rounded-tl-none max-w-[85%] leading-relaxed">
-                ${marked.parse(text)}
-            </div>
-        `;
-        feed.appendChild(msgDiv);
-        feed.scrollTop = feed.scrollHeight;
-    }
-
-    function addUserMessage(text) {
-        const feed = document.getElementById('tutor-chat-feed');
-        const msgDiv = document.createElement('div');
-        msgDiv.className = "flex items-start justify-end space-x-2.5 animate-fade-in";
-        msgDiv.innerHTML = `
-            <div class="bg-amber-500/10 border border-amber-500/20 text-amber-200 p-3 rounded-2xl rounded-tr-none max-w-[85%] leading-relaxed text-right">
-                ${text}
-            </div>
-            <div class="bg-slate-700 text-slate-200 font-extrabold rounded px-1.5 py-0.5 text-[9px]">YOU</div>
-        `;
-        feed.appendChild(msgDiv);
-        feed.scrollTop = feed.scrollHeight;
-    }
-
-    /* Board manipulations */
-    function flipBoard() {
-        boardFlipped = !boardFlipped;
-        generateBoard();
-        updateBoardDisplay();
-    }
-
-    function resetBoard() {
-        chess = new Chess();
-        selectedSquare = null;
-        lastMoveFrom = null;
-        lastMoveTo = null;
-        updateBoardDisplay();
-        addSophiaMessage("The board has been reset. Let's practice structural mastery!");
-    }
-
-    function undoLastMove() {
-        chess.undo(); // Undo computer
-        chess.undo(); // Undo user
-        selectedSquare = null;
-        updateBoardDisplay();
-        addSophiaMessage("Moves reverted. Find a better positional path!");
-    }
-</script>
-
+    </script>
 </body>
 </html>
