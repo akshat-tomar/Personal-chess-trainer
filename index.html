@@ -263,46 +263,64 @@
         function soundMove() { playTone(350, 'sine', 0.1, 0.15); }
         function soundCapture() { playTone(180, 'triangle', 0.15, 0.25); }
 
-        function initStockfish() {
-            try {
-                stockfishWorker = new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
+       function initStockfish() {
+    try {
+        // Fetch the engine source as text to bypass cross-origin browser security blocks
+        fetch('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js')
+            .then(response => response.text())
+            .then(code => {
+                // Convert the text code into a safe local Blob object
+                const blob = new Blob([code], { type: 'application/javascript' });
+                const workerUrl = URL.createObjectURL(blob);
                 
-                stockfishWorker.onmessage = function(event) {
-                    const line = event.data;
-                    if (line.startsWith('info depth')) {
-                        parseEvaluation(line);
-                    }
-                    if (line.startsWith('bestmove')) {
-                        document.getElementById('engineStatus').innerText = "Ready";
-                        const moveParts = line.split(' ');
-                        const bestMove = moveParts[1];
-                        
-                        if (bestMove && bestMove !== '(none)' && game.turn() === 'b' && activeModule === 'freeplay') {
-                            const fromSq = bestMove.substring(0, 2);
-                            const toSq = bestMove.substring(2, 4);
-                            const promo = bestMove.substring(4, 5) || 'q';
-                            
-                            const parsedMove = game.move({ from: fromSq, to: toSq, promotion: promo });
-                            if (parsedMove) {
-                                if (parsedMove.captured) soundCapture(); else soundMove();
-                                saveCurrentState();
-                                updateUI();
-                                renderBoard();
-                                triggerSophiaAnalysis(parsedMove.san);
-                            }
-                        }
-                    }
-                };
+                // Launch the worker from the local safe URL
+                stockfishWorker = new Worker(workerUrl);
+                setupWorkerListeners();
+            })
+            .catch(err => {
+                console.error("Failed to fetch Stockfish source:", err);
+                document.getElementById('engineStatus').innerText = "Network Error Loading Engine";
+            });
+    } catch (err) {
+        console.error("Stockfish initialization failed:", err);
+        document.getElementById('engineStatus').innerText = "Engine Error";
+    }
+}
 
-                stockfishWorker.postMessage('uci');
-                stockfishWorker.postMessage(`setoption name Skill Level value ${engineSkillLevel}`);
-                stockfishWorker.postMessage('isready');
-            } catch (err) {
-                console.error("Stockfish setup failed:", err);
-                document.getElementById('engineStatus').innerText = "Engine Error";
+function setupWorkerListeners() {
+    if (!stockfishWorker) return;
+
+    stockfishWorker.onmessage = function(event) {
+        const line = event.data;
+        if (line.startsWith('info depth')) {
+            parseEvaluation(line);
+        }
+        if (line.startsWith('bestmove')) {
+            document.getElementById('engineStatus').innerText = "Ready";
+            const moveParts = line.split(' ');
+            const bestMove = moveParts[1];
+            
+            if (bestMove && bestMove !== '(none)' && game.turn() === 'b' && activeModule === 'freeplay') {
+                const fromSq = bestMove.substring(0, 2);
+                const toSq = bestMove.substring(2, 4);
+                const promo = bestMove.substring(4, 5) || 'q';
+                
+                const parsedMove = game.move({ from: fromSq, to: toSq, promotion: promo });
+                if (parsedMove) {
+                    if (parsedMove.captured) soundCapture(); else soundMove();
+                    saveCurrentState();
+                    updateUI();
+                    renderBoard();
+                    triggerSophiaAnalysis(parsedMove.san);
+                }
             }
         }
+    };
 
+    stockfishWorker.postMessage('uci');
+    stockfishWorker.postMessage(`setoption name Skill Level value ${engineSkillLevel}`);
+    stockfishWorker.postMessage('isready');
+}
         function parseEvaluation(line) {
             let score = 0;
             if (line.includes('score cp')) {
